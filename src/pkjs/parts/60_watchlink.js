@@ -222,24 +222,35 @@ function sendModelsList() {
   var models = visibleModels();
   var current = activeModel();
   var rows = [];
-  for (var i = 0; i < models.length; i++) {
-    rows.push(makeRow(models[i].label || models[i].id, '', ACT_SET_MODEL, i,
-                      models[i].id === current ? ROW_FLAG_CURRENT : 0));
-  }
-  if (!rows.length) rows.push(makeRow('No models enabled', 'Add one in phone settings', ACT_NONE, 0, 0));
   var selected = 0;
-  for (var j = 0; j < models.length; j++) if (models[j].id === current) selected = j;
+  for (var i = 0; i < models.length; i++) {
+    if (models[i].slug === current) selected = i;
+    rows.push(makeRow(models[i].display_name || models[i].slug,
+                      models[i].description, ACT_SET_MODEL, i,
+                      models[i].slug === current ? ROW_FLAG_CURRENT : 0));
+  }
+  if (!rows.length) {
+    rows.push(makeRow(hasCredentials() ? 'No models yet' : 'Not signed in',
+                      hasCredentials() ? 'Open settings on your phone' : 'Paste your auth.json',
+                      ACT_NONE, 0, 0));
+  }
   sendList(LIST_MODELS, 'Model', rows, selected);
 }
 
+// Reasoning levels come from the selected model: they are not a fixed ladder,
+// and offering one the model does not accept just produces an API error.
 function sendEffortList() {
+  var levels = effortsFor(activeModel());
+  var current = currentEffort();
   var rows = [];
-  var current = effortIndex();
-  for (var i = 0; i < EFFORTS.length; i++) {
-    rows.push(makeRow(EFFORTS[i].label, EFFORTS[i].hint, ACT_SET_EFFORT, i,
-                      i === current ? ROW_FLAG_CURRENT : 0));
+  var selected = 0;
+  for (var i = 0; i < levels.length; i++) {
+    if (levels[i].effort === current) selected = i;
+    rows.push(makeRow(effortLabelFor(levels[i].effort), levels[i].description,
+                      ACT_SET_EFFORT, i,
+                      levels[i].effort === current ? ROW_FLAG_CURRENT : 0));
   }
-  sendList(LIST_EFFORT, 'Thinking', rows, current);
+  sendList(LIST_EFFORT, 'Thinking', rows, selected);
 }
 
 function sendQuickList() {

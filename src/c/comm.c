@@ -164,13 +164,23 @@ static void outbox_sent(DictionaryIterator *iter, void *context) {
 
 static void outbox_failed(DictionaryIterator *iter, AppMessageResult reason, void *context) {
   s_sending = false;
-  APP_LOG(APP_LOG_LEVEL_WARNING, "outbox failed: %d", (int)reason);
-  if (++s_retry_count > 4) {
-    // The phone is not listening; drop the request rather than wedging the queue.
+  s_retry_count++;
+  APP_LOG(APP_LOG_LEVEL_WARNING, "outbox failed: %d (attempt %d)", (int)reason, (int)s_retry_count);
+
+  // Launching the watch app before the phone-side JS is up makes the first few
+  // sends fail, so failures must be ridden out rather than treated as fatal.
+  // Backing off to a few seconds keeps a genuinely absent phone from burning
+  // the radio, and only a request that has failed for the better part of a
+  // minute is abandoned.
+  if (s_retry_count > 10) {
     pop_queue();
     if (reply_window_state() == REPLY_BUSY) reply_window_set_error("Phone unreachable");
+    s_retry_count = 0;
   }
-  schedule_retry(250 * (s_retry_count + 1));
+
+  uint32_t backoff = 250;
+  for (uint8_t i = 0; i < s_retry_count && i < 4; i++) backoff *= 2;
+  schedule_retry(backoff);
 }
 
 // --- inbox ------------------------------------------------------------------
@@ -234,6 +244,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     case PEVT_READY:
       apply_settings(pstr, pint, pint2, pflag);
       s_ready = true;
+      // Proof the phone is alive.  Anything the watch asked for before it was
+      // listening went nowhere, so give the front list another chance instead
+      // of leaving "Phone not connected" on screen until the user backs out.
+      list_phone_ready();
       if (s_has_held_question) {
         s_has_held_question = false;
         comm_send(WREQ_ASK, s_held_question, 0, 0);

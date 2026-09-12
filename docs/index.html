@@ -145,13 +145,9 @@
       </label>
       <label class="field">
         <span>Thinking effort</span>
-        <select id="effort">
-          <option value="minimal">Minimal &mdash; fastest</option>
-          <option value="low">Low &mdash; quick</option>
-          <option value="medium">Medium &mdash; balanced</option>
-          <option value="high">High &mdash; slowest, most careful</option>
-        </select>
+        <select id="effort"></select>
       </label>
+      <p class="note" id="effortNote"></p>
       <div class="row" style="margin-top:14px">
         <div class="lbl"><b>Web search</b><small>Let the model look things up</small></div>
         <label class="switch"><input type="checkbox" id="web_search"><i></i></label>
@@ -166,14 +162,10 @@
   <details class="card">
     <summary>Models <span class="chev" id="modelCount"></span></summary>
     <div class="body">
-      <p class="note">Tick a model to offer it on the watch. The dot marks the one new chats start with.</p>
+      <p class="note">This is the list your ChatGPT account actually offers, fetched from OpenAI.
+        Switch one off to keep it off the watch; tap <b>make default</b> to choose what new chats
+        start with. The list refreshes every time you save.</p>
       <div id="modelList"></div>
-      <div class="inline">
-        <input type="text" id="newModelId" placeholder="model id, e.g. gpt-5.2-codex"
-               spellcheck="false" autocapitalize="off" autocorrect="off">
-        <button class="btn" id="addModel" type="button">Add</button>
-      </div>
-      <button class="btn" id="refreshModels" type="button">Refresh catalog</button>
       <p class="note" id="catalogNote"></p>
     </div>
   </details>
@@ -333,9 +325,38 @@
     document.getElementById('subtitle').textContent = 'Could not read current settings';
   }
   var S = payload.settings || {};
-  var models = (S.models || []).slice();
+  var catalog = (payload.catalog || []).slice();
+  var hidden = (S.hidden_models || []).slice();
   var places = (S.places || []).slice();
   var quick = (S.quick_prompts || []).slice();
+
+  function isHidden(slug) {
+    for (var i = 0; i < hidden.length; i++) if (hidden[i] === slug) return true;
+    return false;
+  }
+  function setHidden(slug, off) {
+    var next = [];
+    for (var i = 0; i < hidden.length; i++) if (hidden[i] !== slug) next.push(hidden[i]);
+    if (off) next.push(slug);
+    hidden = next;
+  }
+  function catalogEntry(slug) {
+    for (var i = 0; i < catalog.length; i++) if (catalog[i].slug === slug) return catalog[i];
+    return null;
+  }
+  // Mirrors the watch: listed by the backend, not switched off here, best first.
+  function pickerModels() {
+    var out = [];
+    for (var i = 0; i < catalog.length; i++) {
+      if (catalog[i].visibility === 'list' && !isHidden(catalog[i].slug)) out.push(catalog[i]);
+    }
+    return out;
+  }
+  function effectiveDefault() {
+    var listed = pickerModels();
+    for (var i = 0; i < listed.length; i++) if (listed[i].slug === S.default_model) return S.default_model;
+    return listed.length ? listed[0].slug : '';
+  }
 
   if (payload.version) $('subtitle').textContent = 'Version ' + payload.version;
 
@@ -354,7 +375,6 @@
     var el = $(key);
     if (el) el.checked = !!S[key];
   });
-  $('effort').value = S.effort || 'medium';
   $('font_scale').value = String(S.font_scale || 0);
   $('reply_char_limit').value = S.reply_char_limit || 1500;
 
@@ -403,10 +423,18 @@
   function renderModels() {
     var host = $('modelList');
     host.innerHTML = '';
-    if (!models.length) {
-      host.innerHTML = '<p class="note">No models yet. Add one below or refresh the catalog.</p>';
+
+    if (!catalog.length) {
+      host.innerHTML = '<p class="note">No models fetched yet. Paste your auth.json above and ' +
+                       'press Save; the list appears the next time you open this page.</p>';
+      $('modelCount').textContent = '';
+      $('catalogNote').textContent = '';
+      renderEfforts();
+      return;
     }
-    models.forEach(function (model, index) {
+
+    var chosen = effectiveDefault();
+    catalog.forEach(function (model) {
       var row = document.createElement('div');
       row.className = 'listrow';
 
@@ -414,88 +442,84 @@
       toggle.className = 'switch';
       var box = document.createElement('input');
       box.type = 'checkbox';
-      box.checked = model.show !== false;
-      box.addEventListener('change', function () { models[index].show = box.checked; renderModels(); });
+      box.checked = model.visibility === 'list' && !isHidden(model.slug);
+      box.disabled = model.visibility !== 'list' && !isHidden(model.slug) ? false : false;
+      box.addEventListener('change', function () {
+        setHidden(model.slug, !box.checked);
+        renderModels();
+      });
       toggle.appendChild(box);
       toggle.appendChild(document.createElement('i'));
 
       var text = document.createElement('div');
       text.className = 'grow';
       text.innerHTML = '<b></b><small></small>';
-      text.querySelector('b').textContent = model.label || model.id;
-      text.querySelector('small').textContent = model.id;
+      text.querySelector('b').textContent = model.display_name || model.slug;
+      var levels = (model.supported_reasoning_levels || []).map(function (l) { return l.effort; });
+      text.querySelector('small').textContent =
+        model.slug + (levels.length ? '  \u00b7  ' + levels.join(' ') : '');
 
       var star = document.createElement('button');
       star.type = 'button';
       star.className = 'btn';
       star.style.margin = '0';
       star.style.padding = '6px 10px';
-      var isDefault = (S.default_model === model.id);
-      star.textContent = isDefault ? '● default' : 'make default';
+      var isDefault = (model.slug === chosen);
+      star.textContent = isDefault ? '\u25cf default' : 'make default';
       if (isDefault) { star.style.borderColor = 'var(--accent)'; star.style.color = 'var(--accent)'; }
       star.addEventListener('click', function () {
-        S.default_model = model.id;
-        models[index].show = true;
-        renderModels();
-      });
-
-      var del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'x';
-      del.innerHTML = '&times;';
-      del.addEventListener('click', function () {
-        models.splice(index, 1);
+        S.default_model = model.slug;
+        setHidden(model.slug, false);
         renderModels();
       });
 
       row.appendChild(toggle);
       row.appendChild(text);
       row.appendChild(star);
-      row.appendChild(del);
+      if (model.description) row.title = model.description;
       host.appendChild(row);
     });
-    var shown = models.filter(function (m) { return m.show !== false; }).length;
-    $('modelCount').textContent = shown + ' of ' + models.length + ' on watch';
+
+    $('modelCount').textContent = pickerModels().length + ' of ' + catalog.length + ' on watch';
+    var age = payload.catalog_age_ms;
+    $('catalogNote').textContent = (typeof age === 'number' && isFinite(age))
+      ? ('Fetched ' + Math.max(0, Math.round(age / 60000)) + ' minutes ago.')
+      : '';
+    renderEfforts();
   }
 
-  $('addModel').addEventListener('click', function () {
-    var id = $('newModelId').value.replace(/^\s+|\s+$/g, '');
-    if (!id) return;
-    for (var i = 0; i < models.length; i++) {
-      if (models[i].id === id) { $('newModelId').value = ''; return; }
-    }
-    models.push({ id: id, label: id, show: true });
-    $('newModelId').value = '';
-    renderModels();
-  });
+  // Reasoning levels belong to a model, so the choices follow the default model.
+  function renderEfforts() {
+    var select = $('effort');
+    var model = catalogEntry(effectiveDefault());
+    var levels = (model && model.supported_reasoning_levels) || [];
+    var previous = S.effort || '';
+    select.innerHTML = '';
 
-  $('refreshModels').addEventListener('click', function () {
-    var note = $('catalogNote');
-    note.textContent = 'Fetching…';
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', 'models.json?t=' + Date.now(), true);
-    xhr.onload = function () {
-      try {
-        var catalog = JSON.parse(xhr.responseText);
-        var added = 0;
-        (catalog.models || []).forEach(function (entry) {
-          for (var i = 0; i < models.length; i++) {
-            if (models[i].id === entry.id) { models[i].label = entry.label || models[i].label; return; }
-          }
-          models.push({ id: entry.id, label: entry.label || entry.id, show: false });
-          added++;
-        });
-        note.textContent = added ? (added + ' new model(s) added, switched off by default.')
-                                 : 'Catalog already up to date' +
-                                   (catalog.updated ? ' (' + catalog.updated + ').' : '.');
-        renderModels();
-      } catch (err) {
-        note.textContent = 'Could not read the catalog.';
-      }
-    };
-    xhr.onerror = function () { note.textContent = 'Could not reach the catalog.'; };
-    xhr.send(null);
-  });
+    var auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = model && model.default_reasoning_level
+      ? ('Model default (' + model.default_reasoning_level + ')')
+      : 'Model default';
+    select.appendChild(auto);
+
+    var names = { none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium',
+                  high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
+    var stillValid = false;
+    levels.forEach(function (level) {
+      var option = document.createElement('option');
+      option.value = level.effort;
+      option.textContent = (names[level.effort] || level.effort) +
+                           (level.description ? ' \u2014 ' + level.description : '');
+      select.appendChild(option);
+      if (level.effort === previous) stillValid = true;
+    });
+    select.value = stillValid ? previous : '';
+
+    $('effortNote').textContent = levels.length
+      ? ('Levels offered by ' + (model.display_name || model.slug) + '.')
+      : 'Levels appear once the model list has been fetched.';
+  }
   renderModels();
 
   // --- places ---------------------------------------------------------------
@@ -594,7 +618,8 @@
       return;
     }
     $('diagWhen').textContent = new Date(report.at).toLocaleString();
-    [['Calendar', report.calendar], ['Reminders', report.reminders], ['Notes', report.notes]]
+    [['Models', report.models], ['Calendar', report.calendar],
+     ['Reminders', report.reminders], ['Notes', report.notes]]
       .forEach(function (pair) {
         var row = document.createElement('div');
         var name = document.createElement('span');
@@ -675,16 +700,17 @@
     next.effort = $('effort').value;
     next.font_scale = parseInt($('font_scale').value, 10) || 0;
     next.reply_char_limit = Math.max(200, Math.min(4000, parseInt($('reply_char_limit').value, 10) || 1500));
-    next.models = models;
     next.places = places;
     next.quick_prompts = quick;
-    next.default_model = S.default_model || (models.length ? models[0].id : '');
+    next.hidden_models = hidden;
+    next.default_model = effectiveDefault();
 
-    // Hiding the model a chat is using would strand the watch on a model it can
-    // no longer show, so fall back to the default.
+    // Switching off the model a chat is using would strand the watch on one it
+    // can no longer show, so fall back to the default.
+    var listed = pickerModels();
     var stillVisible = false;
-    for (var i = 0; i < models.length; i++) {
-      if (models[i].id === S.active_model && models[i].show !== false) stillVisible = true;
+    for (var i = 0; i < listed.length; i++) {
+      if (listed[i].slug === S.active_model) stillVisible = true;
     }
     next.active_model = stillVisible ? S.active_model : next.default_model;
     if (!next.system_prompt) next.system_prompt = 'You are a helpful assistant.';

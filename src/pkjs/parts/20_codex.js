@@ -35,18 +35,31 @@ function parseSseEvents(text) {
   return events;
 }
 
-// Walks the stream and returns the finished response object, or an error.
+// Walks the stream and returns the produced output items, or an error.
+//
+// The Codex backend sends `response.completed` with an EMPTY `output` array --
+// the items themselves only ever arrive as `response.output_item.done` events,
+// so they have to be accumulated as they stream past.  Reading `output` off the
+// completion event alone yields nothing at all.  Other Responses-compatible
+// backends do populate it, so a non-empty one wins if it shows up.
 function readResponseStream(text) {
   var events = parseSseEvents(text);
+  var items = [];
+  var completed = false;
   var failure = null;
+
   for (var i = 0; i < events.length; i++) {
     if (events[i] === '[DONE]') continue;
     var ev = safeParse(events[i], null);
     if (!ev) continue;
-    if (ev.type === 'response.completed' && ev.response) {
-      return { response: ev.response, error: null };
-    }
-    if (ev.type === 'response.failed' || ev.type === 'response.incomplete') {
+
+    if (ev.type === 'response.output_item.done') {
+      if (ev.item) items.push(ev.item);
+    } else if (ev.type === 'response.completed') {
+      completed = true;
+      var carried = (ev.response && ev.response.output) || [];
+      if (carried.length) items = carried;
+    } else if (ev.type === 'response.failed' || ev.type === 'response.incomplete') {
       var reason = (ev.response && ev.response.error && ev.response.error.message) ||
                    (ev.response && ev.response.incomplete_details &&
                     ev.response.incomplete_details.reason) || 'Model stopped early';
@@ -55,7 +68,14 @@ function readResponseStream(text) {
       failure = new Error((ev.error && ev.error.message) || ev.message || 'Stream error');
     }
   }
-  return { response: null, error: failure || new Error('No reply received') };
+
+  if (failure) return { output: null, error: failure };
+  // Each output_item.done is a complete item, so a stream cut short after one
+  // still carries usable content; only a stream with nothing in it is a failure.
+  if (!items.length) {
+    return { output: null, error: new Error(completed ? 'Empty reply' : 'No reply received') };
+  }
+  return { output: items, error: null };
 }
 
 // Turns a partial stream into a short status line for the watch.
@@ -175,7 +195,7 @@ function codexPost(body, sessionId, onStatus, onDone, isRetry) {
 
       var parsed = readResponseStream(res.body);
       if (parsed.error) { onDone(parsed.error, null); return; }
-      onDone(null, parsed.response);
+      onDone(null, parsed.output);
     });
   });
 }
@@ -221,9 +241,9 @@ function codexRunTurn(opts) {
       prompt_cache_key: sessionId
     };
 
-    codexPost(body, sessionId, opts.onStatus, function (err, response) {
+    codexPost(body, sessionId, opts.onStatus, function (err, output) {
       if (err) { finish(err, null); return; }
-      var output = (response && response.output) || [];
+      output = output || [];
       input = input.concat(sanitizeInput(output));
 
       var calls = [];

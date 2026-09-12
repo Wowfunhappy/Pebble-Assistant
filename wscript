@@ -18,6 +18,7 @@ PKJS_PARTS = [
     '00_util.js',
     '05_settings.js',
     '10_auth.js',
+    '15_models.js',
     '20_codex.js',
     '30_caldav.js',
     '35_gmail_notes.js',

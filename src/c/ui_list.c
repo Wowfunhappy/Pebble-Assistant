@@ -40,6 +40,7 @@ static int32_t s_loaded_list = -1;
 static int32_t s_incoming_list = -1;
 static char s_list_title[MAX_TITLE_LEN];
 static bool s_loading;
+static bool s_offline;   // showing the locally synthesised rows
 
 static uint32_t s_phase;
 static AppTimer *s_tick;
@@ -84,6 +85,9 @@ static int16_t content_height(void) { return row_top(s_row_count); }
 // --- data ingest ------------------------------------------------------------
 
 void list_request(int32_t list_id) {
+  // A window's appear handler and an explicit request often land together;
+  // asking twice only doubles the Bluetooth traffic.
+  if (s_loading && s_incoming_list == list_id && elapsed_ms(s_load_t0) < 1500) return;
   s_incoming_list = list_id;
   s_loading = true;
   s_load_t0 = s_phase;
@@ -109,6 +113,7 @@ void list_window_add(int32_t row, const ListRow *item) {
 void list_window_end(int32_t list_id, int32_t selected) {
   s_loaded_list = list_id;
   s_loading = false;
+  s_offline = false;
   relayout();
   if (selected < 0) selected = 0;
   if (selected >= s_row_count) selected = s_row_count > 0 ? s_row_count - 1 : 0;
@@ -143,9 +148,17 @@ static void install_offline_rows(void) {
   str_copy(s_list_title, MAX_TITLE_LEN, "Assistant");
   s_loading = false;
   s_loaded_list = LIST_CHATS;
+  s_offline = true;
   relayout();
   s_sel = 1;
   s_hl = s_hl_to = row_top(1);
+}
+
+// The phone came up after the watch had already given up waiting.
+void list_phone_ready(void) {
+  if (s_depth <= 0) return;
+  int idx = s_depth - 1;
+  if (s_offline || s_loaded_list != s_list_ids[idx]) list_request(s_list_ids[idx]);
 }
 
 static void relayout(void) {

@@ -70,10 +70,10 @@ the first section.
 the contents of `~/.codex/auth.json`. The app refreshes the access token itself
 from then on, using the same OAuth client the CLI uses.
 
-**Models** — tick which models appear on the watch and which one new chats
-start with. *Refresh catalog* pulls [`docs/models.json`](docs/models.json) from
-GitHub Pages, and you can type any model id by hand, so a newly released model
-never needs an app update.
+**Models** — the list is whatever your ChatGPT account actually offers, fetched
+from OpenAI's own model catalog (see below). Switch models off to keep them off
+the watch, and pick which one new chats start with. Nothing is hardcoded, so a
+newly released model shows up on its own.
 
 **Calendar / Reminders** — two independent CalDAV accounts, because calendars
 and to-dos often do not live on the same server. iCloud is
@@ -99,6 +99,22 @@ you get the failing step by name instead of silence.
 ---
 
 ## What the model can do
+
+### Where the model list comes from
+
+The app asks the backend, rather than shipping a list that would go stale:
+
+```
+GET https://chatgpt.com/backend-api/codex/models?client_version=<version>
+```
+
+authenticated exactly like a chat request. Each model comes back with a display
+name and description, a `visibility` of list/hide/none, a `priority` for
+ordering, a `minimal_client_version`, and its own
+`supported_reasoning_levels` — which genuinely differ between models, so the
+**Thinking** menu on the watch follows whichever model is selected rather than
+offering a fixed ladder. The catalog is refreshed on launch and after every
+save, and cached so a flaky connection never empties the menus.
 
 | Tool | Needs |
 |---|---|

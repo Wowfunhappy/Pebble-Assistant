@@ -43,12 +43,27 @@ function buildInstructions() {
 
 // --- asking -----------------------------------------------------------------
 
-function askModel(question) {
+function askModel(question, retried) {
   var text = String(question || '').replace(/^\s+|\s+$/g, '');
   if (!text) return;
 
   if (!hasCredentials()) {
     sendError('Paste your Codex auth.json in Assistant settings on your phone.');
+    return;
+  }
+
+  // The model to use is whatever the backend currently offers.  On a first run,
+  // or after the cache is cleared, fetch that before asking anything.
+  if (!activeModel() && !retried) {
+    sendStatus('Finding models', SPIN_TOOL);
+    fetchModelCatalog(true, function (catalogErr) {
+      if (!activeModel()) {
+        sendError(catalogErr ? catalogErr.message : 'No models available on this account.');
+        return;
+      }
+      sendSettings(PEVT_SETTINGS);
+      askModel(text, true);
+    });
     return;
   }
 
@@ -61,7 +76,7 @@ function askModel(question) {
     model: activeModel(),
     instructions: buildInstructions(),
     tools: buildToolDefinitions(),
-    effort: settings().effort || 'medium',
+    effort: currentEffort(),
     input: input,
     sessionId: conversationSessionId(),
     onStatus: function (label, spin) { sendStatus(label, spin); },
@@ -110,17 +125,18 @@ function handleListAction(action, arg) {
     case ACT_SET_MODEL: {
       var models = visibleModels();
       if (arg >= 0 && arg < models.length) {
-        setActiveModel(models[arg].id);
+        setActiveModel(models[arg].slug);
         sendSettings(PEVT_SETTINGS);
-        sendToast(modelLabel(models[arg].id));
+        sendToast(modelLabel(models[arg].slug));
       }
       break;
     }
     case ACT_SET_EFFORT: {
-      if (arg >= 0 && arg < EFFORTS.length) {
-        updateSettings({ effort: EFFORTS[arg].id });
+      var levels = effortsFor(activeModel());
+      if (arg >= 0 && arg < levels.length) {
+        updateSettings({ effort: levels[arg].effort });
         sendSettings(PEVT_SETTINGS);
-        sendToast('Thinking: ' + EFFORTS[arg].label);
+        sendToast('Thinking: ' + effortLabelFor(levels[arg].effort));
       }
       break;
     }
@@ -214,7 +230,7 @@ function handleWatchMessage(payload) {
 //
 
 function runDiagnostics(onDone) {
-  var report = { at: Date.now(), calendar: 'not configured',
+  var report = { at: Date.now(), models: 'not signed in', calendar: 'not configured',
                  reminders: 'not configured', notes: 'not configured' };
 
   function finishCalendar(next) {
@@ -242,6 +258,17 @@ function runDiagnostics(onDone) {
     });
   }
 
+  function finishModels(next) {
+    if (!hasCredentials()) { next(); return; }
+    fetchModelCatalog(true, function (err, models) {
+      report.models = err ? ('FAILED: ' + err.message)
+                          : ('OK - ' + (models || []).length + ' model(s), ' +
+                             visibleModels().length + ' offered on the watch');
+      next();
+    });
+  }
+
+  finishModels(function () {
   finishCalendar(function () {
     finishReminders(function () {
       finishNotes(function () {
@@ -249,6 +276,7 @@ function runDiagnostics(onDone) {
         if (onDone) onDone(report);
       });
     });
+  });
   });
 }
 
@@ -261,6 +289,11 @@ function configPayload() {
     settings: s,
     auth: authStatus(),
     diagnostics: storeGet(DIAGNOSTICS_KEY, null),
+    // The page cannot call the Codex API itself (no CORS), so it renders the
+    // catalog this side fetched.
+    catalog: catalogAllModels(),
+    catalog_age_ms: catalogAge(),
+    active_model: activeModel(),
     chats: []
   };
   // Conversations ride along so the page can show and export them.  The URL is
@@ -313,8 +346,10 @@ function applyConfigResponse(raw) {
 
   sendSettings(PEVT_SETTINGS);
   sendToast('Settings saved');
+  fetchModelCatalog(true, function () { sendSettings(PEVT_SETTINGS); });
   runDiagnostics(function (report) {
     var problems = [];
+    if (/^FAILED/.test(report.models)) problems.push('models');
     if (/^FAILED/.test(report.calendar)) problems.push('calendar');
     if (/^FAILED/.test(report.reminders)) problems.push('reminders');
     if (/^FAILED/.test(report.notes)) problems.push('notes');
@@ -327,6 +362,14 @@ function applyConfigResponse(raw) {
 Pebble.addEventListener('ready', function () {
   log('PebbleKit JS ready, version ' + APP_VERSION);
   sendSettings(PEVT_READY);
+  // Cached, so this is usually a no-op; it keeps the model menu honest when the
+  // account gains or loses models between launches.
+  if (hasCredentials()) {
+    fetchModelCatalog(false, function (err) {
+      if (err) { logErr('model catalog', err); return; }
+      sendSettings(PEVT_SETTINGS);
+    });
+  }
 });
 
 Pebble.addEventListener('appmessage', function (e) {

@@ -3,25 +3,34 @@
 // whole thing in the URL hash and hands back a full replacement, so adding a
 // field here and a control there is all a new setting needs.
 //
+// Models are deliberately NOT listed here.  The set of models an account can
+// use, their display names, and which reasoning levels each one accepts all
+// come from the Codex backend's /models endpoint (see 15_models.js).  Anything
+// hardcoded would be wrong within weeks.
+//
 
 var SETTINGS_KEY = 'settings_v1';
 var CONFIG_URL = 'https://wowfunhappy.github.io/Pebble-Assistant/';
 
-var EFFORTS = [
-  { id: 'minimal', label: 'Minimal', hint: 'Fastest' },
-  { id: 'low',     label: 'Low',     hint: 'Quick' },
-  { id: 'medium',  label: 'Medium',  hint: 'Balanced' },
-  { id: 'high',    label: 'High',    hint: 'Slowest, most careful' }
-];
+// Reasoning levels are per-model; these are only the display names for the
+// level ids the backend uses.
+var EFFORT_LABELS = {
+  none: 'None',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra'
+};
 
-// A starting catalog only.  The config page refreshes this list from
-// docs/models.json on every open, and the user can add any model id by hand, so
-// a new model never needs an app update.
-var DEFAULT_MODELS = [
-  { id: 'gpt-5.1-codex',      label: 'GPT-5.1 Codex',      show: true },
-  { id: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex mini', show: true },
-  { id: 'gpt-5.1-codex-max',  label: 'GPT-5.1 Codex max',  show: false },
-  { id: 'gpt-5-codex',        label: 'GPT-5 Codex',        show: false }
+// Used only until the first catalog fetch succeeds, so the menus are never
+// empty on a cold start.
+var FALLBACK_EFFORTS = [
+  { effort: 'low', description: 'Fast responses with lighter reasoning' },
+  { effort: 'medium', description: 'Balances speed and reasoning depth' },
+  { effort: 'high', description: 'Greater reasoning depth' }
 ];
 
 var DEFAULT_QUICK_PROMPTS = [
@@ -34,13 +43,18 @@ var DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.';
 
 function defaultSettings() {
   return {
-    version: 1,
+    version: 2,
     auth_json: '',
     system_prompt: DEFAULT_SYSTEM_PROMPT,
-    models: DEFAULT_MODELS.slice(),
-    default_model: 'gpt-5.1-codex',
+
+    // Model selection is by slug against the fetched catalog.  Empty strings
+    // mean "whatever the catalog says is best", which keeps working when the
+    // account gains or loses models.
+    default_model: '',
     active_model: '',
-    effort: 'medium',
+    hidden_models: [],
+    effort: '',
+
     web_search: true,
     location_enabled: true,
     font_scale: 0,
@@ -87,8 +101,8 @@ function settings() {
       if (typeof stored[key] !== 'undefined' && stored[key] !== null) base[key] = stored[key];
     }
   }
-  if (!base.models || !base.models.length) base.models = DEFAULT_MODELS.slice();
   if (!base.system_prompt) base.system_prompt = DEFAULT_SYSTEM_PROMPT;
+  if (!base.hidden_models) base.hidden_models = [];
   _settings = base;
   return _settings;
 }
@@ -109,48 +123,94 @@ function updateSettings(patch) {
 
 // --- models -----------------------------------------------------------------
 
-function visibleModels() {
-  var list = settings().models || [];
-  var out = [];
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].id && list[i].show !== false) out.push(list[i]);
-  }
-  if (!out.length && list.length) out.push(list[0]);
-  return out;
+function isHidden(slug) {
+  var hidden = settings().hidden_models || [];
+  for (var i = 0; i < hidden.length; i++) if (hidden[i] === slug) return true;
+  return false;
 }
 
-function modelLabel(id) {
-  var list = settings().models || [];
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].id === id) return list[i].label || list[i].id;
+// What the watch offers: what the backend lists, minus anything switched off on
+// the phone, most capable first.
+function visibleModels() {
+  var models = catalogPickerModels();
+  var out = [];
+  for (var i = 0; i < models.length; i++) {
+    if (!isHidden(models[i].slug)) out.push(models[i]);
   }
-  return id;
+  return out.length ? out : models;
+}
+
+function modelLabel(slug) {
+  var model = catalogModel(slug);
+  if (model) return model.display_name || model.slug;
+  return slug || 'No model';
+}
+
+function defaultModelSlug() {
+  var wanted = settings().default_model;
+  var choices = visibleModels();
+  var i;
+  for (i = 0; i < choices.length; i++) if (choices[i].slug === wanted) return wanted;
+  return choices.length ? choices[0].slug : '';
 }
 
 function activeModel() {
-  var s = settings();
-  var candidates = visibleModels();
-  var wanted = s.active_model || s.default_model;
-  for (var i = 0; i < candidates.length; i++) {
-    if (candidates[i].id === wanted) return wanted;
-  }
-  return candidates.length ? candidates[0].id : (s.default_model || 'gpt-5.1-codex');
+  var wanted = settings().active_model;
+  var choices = visibleModels();
+  for (var i = 0; i < choices.length; i++) if (choices[i].slug === wanted) return wanted;
+  return defaultModelSlug();
 }
 
-function setActiveModel(id) {
-  updateSettings({ active_model: id });
+function setActiveModel(slug) {
+  updateSettings({ active_model: slug });
+  // A model may not accept the reasoning level the last one did.
+  var levels = effortsFor(slug);
+  var current = settings().effort;
+  var supported = false;
+  for (var i = 0; i < levels.length; i++) if (levels[i].effort === current) supported = true;
+  if (!supported) updateSettings({ effort: '' });
+}
+
+// --- reasoning levels -------------------------------------------------------
+
+function effortsFor(slug) {
+  var model = catalogModel(slug);
+  var levels = model && model.supported_reasoning_levels;
+  if (levels && levels.length) return levels;
+  return FALLBACK_EFFORTS;
+}
+
+function effortLabelFor(id) {
+  return EFFORT_LABELS[id] || titleCaseFirst(String(id || ''));
+}
+
+// The chosen level, or the model's own default when nothing is chosen or the
+// chosen one is not offered by this model.
+function currentEffort() {
+  var slug = activeModel();
+  var levels = effortsFor(slug);
+  var wanted = settings().effort;
+  var i;
+  for (i = 0; i < levels.length; i++) if (levels[i].effort === wanted) return wanted;
+
+  var model = catalogModel(slug);
+  var fallback = model && model.default_reasoning_level;
+  if (fallback) {
+    for (i = 0; i < levels.length; i++) if (levels[i].effort === fallback) return fallback;
+  }
+  for (i = 0; i < levels.length; i++) if (levels[i].effort === 'medium') return 'medium';
+  return levels.length ? levels[0].effort : 'medium';
 }
 
 function effortIndex() {
-  var current = settings().effort || 'medium';
-  for (var i = 0; i < EFFORTS.length; i++) {
-    if (EFFORTS[i].id === current) return i;
-  }
-  return 2;
+  var levels = effortsFor(activeModel());
+  var current = currentEffort();
+  for (var i = 0; i < levels.length; i++) if (levels[i].effort === current) return i;
+  return 0;
 }
 
 function effortLabel() {
-  return EFFORTS[effortIndex()].label;
+  return effortLabelFor(currentEffort());
 }
 
 // --- capability checks used by the settings menu and tool gating -------------

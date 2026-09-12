@@ -58,6 +58,24 @@ of it. Submenus stack above whichever is in front.
 Dictation is a system modal that owns all four buttons; BACK is the only signal
 it gives back. Do not design gestures that need UP/DOWN during recording.
 
+## Model catalog
+
+**Never hardcode a model list or a reasoning ladder.** Both come from
+
+```
+GET https://chatgpt.com/backend-api/codex/models?client_version=X.Y.Z
+```
+
+(`15_models.js`), authenticated like a chat request; `client_version` is
+required and the request 400s without it. Per model the response carries
+`slug`, `display_name`, `description`, `visibility` (list/hide/none),
+`priority`, `minimal_client_version`, `default_reasoning_level` and
+`supported_reasoning_levels`. Those levels are per-model — currently low,
+medium, high, xhigh, max, ultra in varying subsets — so the Thinking menu is
+built from the selected model, not from a constant. The catalog is trimmed
+before caching because the raw payload is tens of KB per model and the config
+page travels through a URL hash.
+
 ## Codex backend
 
 `POST https://chatgpt.com/backend-api/codex/responses`, streaming Responses API.
@@ -67,6 +85,11 @@ it gives back. Do not design gestures that need UP/DOWN during recording.
 - Body: `store: false`, `stream: true`,
   `include: ["reasoning.encrypted_content"]`, `prompt_cache_key`.
 - Streaming is not optional; the reply is parsed out of the SSE body.
+- **`response.completed` arrives with `output: []`.** The output items only ever
+  come as `response.output_item.done` events and must be accumulated as they
+  stream past. Reading `output` off the completion event returns nothing, which
+  looks exactly like the model saying nothing. Any mock that populates
+  `completed.output` is testing a protocol that does not exist.
 - Echoed items keep `encrypted_content` but **lose `id` and `status`** — the API
   rejects server-assigned ids on a `store: false` request (`sanitizeItem`).
 - Token refresh: `POST https://auth.openai.com/oauth/token` with client id

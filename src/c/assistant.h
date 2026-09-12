@@ -185,6 +185,7 @@ void list_window_add(int32_t row, const ListRow *item);
 void list_window_end(int32_t list_id, int32_t selected);
 void list_request(int32_t list_id);
 void list_pop_submenus(void);     // leave only the root chats list on the stack
+void list_phone_ready(void);      // the phone connected; retry anything that timed out
 
 void dictation_start(void);
 bool dictation_active(void);

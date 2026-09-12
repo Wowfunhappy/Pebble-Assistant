@@ -29,6 +29,7 @@ static uint8_t s_retry_count;
 static char s_pending_text[PENDING_TEXT_LEN];
 static char s_held_question[PENDING_TEXT_LEN];   // asked before the phone said hello
 static bool s_has_held_question;
+static int32_t s_held_redo = -1;
 
 static bool s_ready;
 static char s_model_label[MAX_ROW_LABEL_LEN] = "Assistant";
@@ -139,12 +140,13 @@ void comm_send(int32_t req, const char *str, int32_t a, int32_t b) {
   pump_outbox();
 }
 
-void comm_queue_question(const char *text) {
+void comm_queue_question(const char *text, int32_t redo_index) {
   if (!text || !text[0]) return;
   if (s_ready) {
-    comm_send(WREQ_ASK, text, 0, 0);
+    comm_send(WREQ_ASK, text, redo_index, 0);
   } else {
     str_copy(s_held_question, PENDING_TEXT_LEN, text);
+    s_held_redo = redo_index;
     s_has_held_question = true;
     reply_window_set_status("Connecting...", SPIN_THINKING);
   }
@@ -250,7 +252,8 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       list_phone_ready();
       if (s_has_held_question) {
         s_has_held_question = false;
-        comm_send(WREQ_ASK, s_held_question, 0, 0);
+        comm_send(WREQ_ASK, s_held_question, s_held_redo, 0);
+        s_held_redo = -1;
         s_held_question[0] = '\0';
       }
       break;

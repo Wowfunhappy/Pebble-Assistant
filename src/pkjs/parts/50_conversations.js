@@ -139,6 +139,24 @@ function appendTurn(question, answer) {
   return chat;
 }
 
+// "Ask again": the turn on screen is replaced, so it and everything after it go.
+// Later turns were answers to the question being thrown away, so keeping them
+// would leave a transcript that never happened.
+function truncateChatTo(index) {
+  var store = chatStore();
+  var chat = findChat(store, store.active_id);
+  if (!chat || index < 0 || index >= chat.turns.length) return false;
+  chat.turns = chat.turns.slice(0, index);
+  chat.updated = Date.now();
+  saveChatStore(store);
+  // The in-memory reasoning context still contains the discarded turns; drop it
+  // and let the transcript be rebuilt from what survives.
+  _liveInput = null;
+  _liveChatId = chat.id;
+  _liveSessionId = uuid4();
+  return true;
+}
+
 function deleteActiveChat() {
   var store = chatStore();
   var id = store.active_id;

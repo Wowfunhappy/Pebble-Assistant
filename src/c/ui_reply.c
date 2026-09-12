@@ -76,6 +76,14 @@ static int16_t scroll_step(void) {
 
 ReplyState reply_window_state(void) { return s_state; }
 
+// Which turn the user is looking at.  Only a settled conversation counts: a
+// question still in flight has nothing to go back to.
+int32_t reply_window_turn_index(void) {
+  if (s_state != REPLY_SHOW) return -1;
+  if (!s_turn.answer[0] && !s_turn.question[0]) return -1;
+  return s_turn.index;
+}
+
 bool reply_window_has_content(void) {
   return s_turn.answer[0] != '\0' || s_turn.question[0] != '\0';
 }

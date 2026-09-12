@@ -57,8 +57,15 @@ Two screens. The chats list is the root window; the reply view is pushed on top
 of it. Submenus stack above whichever is in front.
 
 - Launch pushes the chats list, then opens dictation ~60 ms later.
+- "Ask again" carries the turn index on `WREQ_ASK` (`WINT`, -1 to append) rather
+  than arming state on the phone: the conversation is only truncated when the
+  replacement question actually arrives, so a cancelled dictation destroys
+  nothing. An absent `WINT` must mean append -- defaulting to 0 would wipe the
+  thread.
 - Cancelling dictation hides the reply view, revealing the chats list.
-- Every list exits by scrolling past either edge, as well as by BACK.
+- Only the root chats list exits by scrolling past an edge, and only when there
+  is a conversation to go back to. Submenus bounce; they are left with BACK.
+  The edge chevron is drawn only where the gesture actually does something.
 - The root list pops to the conversation if one exists, otherwise it bounces.
 
 Dictation is a system modal that owns all four buttons; BACK is the only signal

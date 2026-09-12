@@ -60,6 +60,7 @@ static bool s_bouncing;
 
 static void ensure_tick(void);
 static void relayout(void);
+static bool edge_exits_here(void);
 
 static uint32_t elapsed_ms(uint32_t start) { return (s_phase - start) * TICK_MS; }
 
@@ -269,16 +270,21 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     draw_row(ctx, b, i, y, i == s_sel);
   }
 
-  // Edge affordances: these lists exit by scrolling off either end.
-  graphics_context_set_stroke_color(ctx, t->accent_dim);
-  int16_t cx = b.size.w / 2;
-  if (s_sel == 0) {
-    for (int i = 0; i < 3; i++)
-      graphics_draw_line(ctx, GPoint(cx - 4 + i, top + i), GPoint(cx + 4 - i, top + i));
-  }
-  if (s_sel == s_row_count - 1) {
-    for (int i = 0; i < 3; i++)
-      graphics_draw_line(ctx, GPoint(cx - 4 + i, b.size.h - 1 - i), GPoint(cx + 4 - i, b.size.h - 1 - i));
+  // Edge affordance, drawn only where running off the end actually goes
+  // somewhere -- promising an exit a submenu will not honour is worse than
+  // showing nothing.
+  if (edge_exits_here()) {
+    graphics_context_set_stroke_color(ctx, t->accent_dim);
+    int16_t cx = b.size.w / 2;
+    if (s_sel == 0) {
+      for (int i = 0; i < 3; i++)
+        graphics_draw_line(ctx, GPoint(cx - 4 + i, top + i), GPoint(cx + 4 - i, top + i));
+    }
+    if (s_sel == s_row_count - 1) {
+      for (int i = 0; i < 3; i++)
+        graphics_draw_line(ctx, GPoint(cx - 4 + i, b.size.h - 1 - i),
+                           GPoint(cx + 4 - i, b.size.h - 1 - i));
+    }
   }
 
   theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL);
@@ -367,32 +373,33 @@ static void move_selection(int delta) {
 
 // --- navigation -------------------------------------------------------------
 
+static void edge_bounce(int8_t dir) {
+  s_bounce_dir = dir;
+  s_bounce_t0 = s_phase;
+  s_bouncing = true;
+  vibe_bump();
+  ensure_tick();
+}
+
+// Only the root chats list can be left by scrolling off the end: that is the
+// way back to the conversation.  A submenu is left with BACK, so running off
+// its edge just bounces -- sliding out of Settings while hunting for a row is
+// never what was meant.
+static bool edge_exits_here(void) {
+  return s_depth <= 1 && reply_window_has_content();
+}
+
 static void pop_current(void) {
   if (s_depth <= 1) {
-    // The root list exits to the conversation, if there is one to go back to.
-    if (reply_window_has_content()) {
-      reply_window_return();
-    } else {
-      s_bounce_dir = 0;
-      s_bounce_t0 = s_phase;
-      s_bouncing = true;
-      vibe_bump();
-      ensure_tick();
-    }
+    if (reply_window_has_content()) reply_window_return();
+    else edge_bounce(0);
     return;
   }
   window_stack_pop(true);
 }
 
 static void edge_exit(int8_t dir) {
-  if (s_depth <= 1 && !reply_window_has_content()) {
-    s_bounce_dir = dir;
-    s_bounce_t0 = s_phase;
-    s_bouncing = true;
-    vibe_bump();
-    ensure_tick();
-    return;
-  }
+  if (!edge_exits_here()) { edge_bounce(dir); return; }
   vibe_soft();
   pop_current();
 }
@@ -451,6 +458,16 @@ static void activate(void) {
       comm_send(WREQ_LIST_ACTION, NULL, ACT_OPEN_CHAT, row->arg);
       reply_window_set_status("Opening...", SPIN_THINKING);
       break;
+
+    case ACT_REDO_TURN: {
+      // Nothing is discarded until the replacement question actually arrives,
+      // so backing out of the microphone leaves the conversation untouched.
+      int32_t turn = reply_window_turn_index();
+      if (turn < 0) { toast_show("Nothing to redo"); break; }
+      list_pop_submenus();
+      dictation_start_redo(turn);
+      break;
+    }
 
     case ACT_DELETE_CHAT:
       // The phone deletes it and answers with PEVT_DISMISS, which tears down

@@ -23,7 +23,7 @@ var LIST_CHATS = 1, LIST_SETTINGS = 2, LIST_MODELS = 3, LIST_EFFORT = 4,
 
 var ACT_NONE = 0, ACT_OPEN_CHAT = 1, ACT_SET_MODEL = 2, ACT_SET_EFFORT = 3,
     ACT_TOGGLE = 4, ACT_SUBMENU = 5, ACT_NEW_CHAT = 6, ACT_CLOSE = 8,
-    ACT_DELETE_CHAT = 9;
+    ACT_DELETE_CHAT = 9, ACT_REDO_TURN = 10;
 
 var ROW_FLAG_CURRENT = 1, ROW_FLAG_ON = 2, ROW_FLAG_OFF = 4,
     ROW_FLAG_CHEVRON = 8, ROW_FLAG_ACCENT = 16;
@@ -256,7 +256,10 @@ function sendEffortList() {
 // exists so there is somewhere for the next one to go.
 function sendChatActionsList() {
   var chat = activeChat();
-  var rows = [makeRow('Delete chat', chat ? chat.title : '', ACT_DELETE_CHAT, 0, 0)];
+  var rows = [
+    makeRow('Ask again', 'Re-record this question', ACT_REDO_TURN, 0, 0),
+    makeRow('Delete chat', chat ? chat.title : '', ACT_DELETE_CHAT, 0, 0)
+  ];
   sendList(LIST_CHAT_ACTIONS, 'Options', rows, 0);
 }
 

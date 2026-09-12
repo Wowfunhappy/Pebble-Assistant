@@ -43,7 +43,7 @@ function buildInstructions() {
 
 // --- asking -----------------------------------------------------------------
 
-function askModel(question, retried) {
+function askModel(question, retried, redoIndex) {
   var text = String(question || '').replace(/^\s+|\s+$/g, '');
   if (!text) return;
 
@@ -62,10 +62,14 @@ function askModel(question, retried) {
         return;
       }
       sendSettings(PEVT_SETTINGS);
-      askModel(text, true);
+      askModel(text, true, redoIndex);
     });
     return;
   }
+
+  // Done here rather than earlier so that bailing out above -- no credentials,
+  // no models -- leaves the conversation intact.
+  if (isFiniteNumber(redoIndex) && redoIndex >= 0) truncateChatTo(redoIndex);
 
   var input = conversationInput();
   input.push(userMessage(text));
@@ -203,7 +207,9 @@ function handleWatchMessage(payload) {
       sendSettings(PEVT_READY);
       break;
     case WREQ_ASK:
-      askModel(str);
+      // Absent means "append", not "replace turn 0" -- defaulting the other way
+      // would quietly wipe a conversation.
+      askModel(str, false, typeof payload.WINT === 'number' ? payload.WINT : -1);
       break;
     case WREQ_CANCEL:
       if (_currentRun) { _currentRun.cancel(); _currentRun = null; }

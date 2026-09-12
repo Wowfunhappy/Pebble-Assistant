@@ -46,12 +46,23 @@ conversation history can all change without a new watch build.
 | Reply | UP / DOWN | Scroll. Past the top or bottom edge moves to the adjacent turn |
 | Reply | UP ×2 / DOWN ×2 | Previous / next turn |
 | Reply | SELECT | Keep talking in this conversation |
-| Reply | SELECT (hold) | Start a new conversation |
+| Reply | SELECT (hold) | Options for this conversation |
 | Reply | BACK | Chats list |
 | Chats list | UP / DOWN | Move. Past either edge goes back to the conversation |
 | Chats list | SELECT | Open the row |
 | Chats list | BACK | Back to the conversation, or out of the app |
+| Submenu | UP / DOWN | Move. The edges bounce; submenus are left with BACK |
+| Submenu | BACK | Back one level |
 | Reminder alert | SELECT / UP | Dismiss / snooze 9 minutes |
+
+Long-pressing SELECT inside a conversation opens **Options**:
+
+- **Ask again** re-records the question for the turn you are looking at. Turns
+  before it stay as context; that turn and anything after it are discarded,
+  because the later ones were answers to the question being replaced. Nothing
+  is thrown away until a replacement actually arrives, so backing out of the
+  microphone leaves the conversation exactly as it was.
+- **Delete chat** removes the whole conversation. There is no confirmation step.
 
 The chats list is `[Settings]`, `[New Chat]`, then your history, with **New
 Chat** preselected — so backing out of the microphone leaves a retry one press

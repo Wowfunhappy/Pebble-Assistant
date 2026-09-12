@@ -16,6 +16,7 @@
 static DictationSession *s_session;
 static bool s_active;
 static uint8_t s_abort_retries;
+static int32_t s_redo_index = -1;   // turn the next question replaces, -1 to append
 
 bool dictation_active(void) { return s_active; }
 
@@ -36,11 +37,14 @@ static void dictation_cb(DictationSession *session, DictationSessionStatus statu
     case DictationSessionStatusSuccess:
       s_abort_retries = 0;
       if (transcription && transcription[0]) {
+        int32_t redo = s_redo_index;
+        s_redo_index = -1;
         list_pop_submenus();
         reply_window_set_question(transcription);
         reply_window_set_status("Thinking", SPIN_THINKING);
-        comm_queue_question(transcription);
+        comm_queue_question(transcription, redo);
       } else {
+        s_redo_index = -1;
         show_chats();
       }
       break;
@@ -53,6 +57,7 @@ static void dictation_cb(DictationSession *session, DictationSessionStatus statu
         dictation_start();
       } else {
         s_abort_retries = 0;
+        s_redo_index = -1;
         show_chats();
       }
       break;
@@ -61,6 +66,7 @@ static void dictation_cb(DictationSession *session, DictationSessionStatus statu
     case DictationSessionStatusFailureTranscriptionRejectedWithError:
     case DictationSessionStatusFailureNoSpeechDetected:
       s_abort_retries = 0;
+      s_redo_index = -1;
       show_chats();
       break;
 
@@ -75,6 +81,7 @@ static void dictation_cb(DictationSession *session, DictationSessionStatus statu
     case DictationSessionStatusFailureInternalError:
     case DictationSessionStatusFailureRecognizerError:
     default:
+      s_redo_index = -1;
       reply_window_set_error("Could not hear that");
       break;
   }
@@ -98,6 +105,11 @@ void dictation_start(void) {
   dictation_session_start(s_session);
 }
 
+void dictation_start_redo(int32_t turn_index) {
+  s_redo_index = turn_index;
+  dictation_start();
+}
+
 void dictation_cleanup(void) {
   if (s_session) {
     dictation_session_destroy(s_session);
@@ -112,6 +124,16 @@ bool dictation_active(void) { return false; }
 
 void dictation_start(void) {
   reply_window_set_error("This watch has no microphone");
+}
+
+void dictation_start_redo(int32_t turn_index) {
+  (void)turn_index;
+  dictation_start();
+}
+
+void dictation_start_redo(int32_t turn_index) {
+  s_redo_index = turn_index;
+  dictation_start();
 }
 
 void dictation_cleanup(void) {}

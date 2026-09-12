@@ -15,7 +15,7 @@
 
 // Watch -> phone, carried in MESSAGE_KEY_WREQ.
 #define WREQ_HELLO         1   // WINT = launch reason, WINT2 = wakeup cookie (-1 if none)
-#define WREQ_ASK           2   // WSTR = dictated text
+#define WREQ_ASK           2   // WSTR = dictated text, WINT = turn to replace (-1 to append)
 #define WREQ_CANCEL        3   // abandon the in-flight request
 #define WREQ_NEW_CHAT      4
 #define WREQ_OPEN_LIST     5   // WINT = list id
@@ -58,6 +58,7 @@
 #define ACT_NEW_CHAT       6   // dismiss the list and start dictation
 #define ACT_CLOSE          8   // dismiss the list
 #define ACT_DELETE_CHAT    9   // delete the conversation being shown
+#define ACT_REDO_TURN     10   // re-record the question for the turn on screen
 
 // Row flags.
 #define ROW_FLAG_CURRENT   (1 << 0)   // draw the "active value" dot
@@ -143,7 +144,7 @@ void comm_deinit(void);
 bool comm_is_ready(void);
 void comm_send(int32_t req, const char *str, int32_t a, int32_t b);
 void comm_send_hello(void);
-void comm_queue_question(const char *text);
+void comm_queue_question(const char *text, int32_t redo_index);
 
 // Live settings mirrored from the phone.
 const char *comm_model_label(void);
@@ -178,6 +179,7 @@ void reply_window_show_turn(const Turn *turn);
 void reply_window_return(void);   // re-show existing content from the chats list
 void reply_window_hide(void);     // drop back to the chats list
 void reply_window_forget(void);   // discard the shown turn, then hide
+int32_t reply_window_turn_index(void);  // turn on screen, or -1 if none
 
 void list_window_init(void);
 void list_window_deinit(void);
@@ -191,6 +193,7 @@ void list_open(int32_t list_id);  // push a list on top of whatever is in front
 void list_phone_ready(void);      // the phone connected; retry anything that timed out
 
 void dictation_start(void);
+void dictation_start_redo(int32_t turn_index);
 bool dictation_active(void);
 void dictation_cleanup(void);
 

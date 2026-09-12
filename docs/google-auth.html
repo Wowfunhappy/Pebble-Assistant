@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Connect Gmail &mdash; Assistant</title>
+<style>
+  :root { --bg:#0e1116; --card:#171c24; --card-2:#1f252f; --line:#2b323d; --text:#e8edf4;
+          --dim:#9aa6b6; --accent:#35b8e8; --accent-ink:#06202b; --good:#4fd18b; --bad:#ff7b72; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); padding:0 0 40px;
+         font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding:22px 18px 14px; border-bottom:1px solid var(--line);
+           background:linear-gradient(180deg,#182231,var(--bg)); }
+  h1 { margin:0; font-size:21px; }
+  header p { margin:4px 0 0; color:var(--dim); font-size:13px; }
+  main { padding:16px; max-width:680px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:0 0 14px; }
+  h2 { font-size:15px; margin:0 0 8px; }
+  ol { padding-left:20px; color:var(--dim); font-size:14px; margin:0; }
+  ol li { margin:8px 0; }
+  code { background:var(--card-2); padding:2px 6px; border-radius:5px; font-size:12.5px;
+         word-break:break-all; color:var(--text); }
+  label { display:block; margin:14px 0 0; }
+  label > span { display:block; font-size:13px; color:var(--dim); margin-bottom:5px; }
+  input, textarea { width:100%; background:var(--card-2); color:var(--text); border:1px solid var(--line);
+                    border-radius:9px; padding:10px 11px; font:inherit; font-size:15px; -webkit-appearance:none; }
+  textarea { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; min-height:90px; }
+  .btn { border:1px solid var(--line); background:var(--card-2); color:var(--text); border-radius:9px;
+         padding:11px 16px; font:inherit; font-size:15px; cursor:pointer; margin:14px 8px 0 0; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .msg { margin-top:12px; font-size:14px; }
+  .msg.ok { color:var(--good); }
+  .msg.bad { color:var(--bad); }
+  .copybox { margin-top:14px; display:none; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Connect Gmail</h1>
+  <p>So the assistant can write to your Apple Notes</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Why this is fiddly</h2>
+    <p style="color:var(--dim);font-size:14px;margin:0">
+      Apple Notes stored on a Gmail account are ordinary Gmail messages under a label
+      (normally <code>Notes</code>), each tagged with an Apple header. Writing one needs Gmail
+      API access, and Google only hands that out to an OAuth client you own. Five minutes once,
+      then it just works.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>1. Make an OAuth client</h2>
+    <ol>
+      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project (any name).</li>
+      <li>Under <b>APIs &amp; Services &rarr; Library</b>, enable the <b>Gmail API</b>.</li>
+      <li>Under <b>OAuth consent screen</b>, pick <b>External</b>, fill in the required fields, and add
+          your own Gmail address as a <b>Test user</b>. Leaving the app in Testing mode is fine.</li>
+      <li>Under <b>Credentials &rarr; Create credentials &rarr; OAuth client ID</b>, choose
+          <b>Web application</b>.</li>
+      <li>Add this exact <b>Authorized redirect URI</b>:<br>
+          <code id="redirectUri">&nbsp;</code></li>
+      <li>Copy the client ID and client secret into the boxes below.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>2. Connect</h2>
+    <label><span>Client ID</span>
+      <input type="text" id="clientId" spellcheck="false" autocapitalize="off" autocorrect="off"
+             placeholder="1234-abcd.apps.googleusercontent.com"></label>
+    <label><span>Client secret</span>
+      <input type="password" id="clientSecret" autocapitalize="off" autocorrect="off"></label>
+    <button class="btn primary" id="connect" type="button">Sign in with Google</button>
+    <button class="btn" id="reset" type="button">Start over</button>
+    <div class="msg" id="status"></div>
+
+    <div class="copybox" id="copybox">
+      <label><span>Refresh token &mdash; paste this into Assistant settings</span>
+        <textarea id="refreshToken" readonly spellcheck="false"></textarea></label>
+      <button class="btn" id="copy" type="button">Copy</button>
+      <p style="color:var(--dim);font-size:13px;margin-top:12px">
+        Now go back to Assistant settings on your phone, open <b>Notes</b>, and paste this
+        together with the same client ID and secret.
+      </p>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
+  var AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+  var TOKEN_URL = 'https://oauth2.googleapis.com/token';
+  var REDIRECT = window.location.origin + window.location.pathname;
+
+  $('redirectUri').textContent = REDIRECT;
+
+  function remember(key, value) { try { sessionStorage.setItem(key, value); } catch (e) {} }
+  function recall(key) { try { return sessionStorage.getItem(key) || ''; } catch (e) { return ''; } }
+
+  $('clientId').value = recall('gauth_client_id');
+  $('clientSecret').value = recall('gauth_client_secret');
+
+  function say(text, kind) {
+    var el = $('status');
+    el.textContent = text;
+    el.className = 'msg' + (kind ? ' ' + kind : '');
+  }
+
+  function randomVerifier() {
+    var bytes = new Uint8Array(48);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+    return btoa(out).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  // S256 where the browser offers it; Google also accepts a plain challenge, and
+  // falling back beats refusing to work in an older WebView.
+  function challenge(verifier) {
+    if (!window.crypto || !window.crypto.subtle || !window.TextEncoder) {
+      return Promise.resolve({ value: verifier, method: 'plain' });
+    }
+    return window.crypto.subtle
+      .digest('SHA-256', new TextEncoder().encode(verifier))
+      .then(function (buf) {
+        var bytes = new Uint8Array(buf), raw = '';
+        for (var i = 0; i < bytes.length; i++) raw += String.fromCharCode(bytes[i]);
+        return { value: btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+                 method: 'S256' };
+      })
+      .catch(function () { return { value: verifier, method: 'plain' }; });
+  }
+
+  $('connect').addEventListener('click', function () {
+    var clientId = $('clientId').value.replace(/^\s+|\s+$/g, '');
+    var secret = $('clientSecret').value.replace(/^\s+|\s+$/g, '');
+    if (!clientId || !secret) { say('Fill in both the client ID and the secret first.', 'bad'); return; }
+
+    var verifier = randomVerifier();
+    remember('gauth_client_id', clientId);
+    remember('gauth_client_secret', secret);
+    remember('gauth_verifier', verifier);
+
+    say('Redirecting to Google…');
+    challenge(verifier).then(function (ch) {
+      remember('gauth_method', ch.method);
+      window.location = AUTH_URL +
+        '?client_id=' + encodeURIComponent(clientId) +
+        '&redirect_uri=' + encodeURIComponent(REDIRECT) +
+        '&response_type=code' +
+        '&scope=' + encodeURIComponent(SCOPE) +
+        '&access_type=offline&prompt=consent&include_granted_scopes=true' +
+        '&code_challenge=' + encodeURIComponent(ch.value) +
+        '&code_challenge_method=' + ch.method;
+    });
+  });
+
+  $('reset').addEventListener('click', function () {
+    try { sessionStorage.clear(); } catch (e) {}
+    window.location = REDIRECT;
+  });
+
+  $('copy').addEventListener('click', function () {
+    var box = $('refreshToken');
+    box.removeAttribute('readonly');
+    box.focus();
+    box.setSelectionRange(0, box.value.length);
+    var copied = false;
+    try { copied = document.execCommand('copy'); } catch (e) {}
+    box.setAttribute('readonly', 'readonly');
+    if (navigator.clipboard && !copied) {
+      navigator.clipboard.writeText(box.value).then(function () { say('Copied.', 'ok'); });
+      return;
+    }
+    say(copied ? 'Copied.' : 'Select the text above and copy it.', copied ? 'ok' : '');
+  });
+
+  // --- returning from Google -------------------------------------------------
+  function queryParam(name) {
+    var match = new RegExp('[?&]' + name + '=([^&]*)').exec(window.location.search);
+    return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
+  }
+
+  var error = queryParam('error');
+  var code = queryParam('code');
+
+  if (error) {
+    say('Google refused the sign-in: ' + error, 'bad');
+  } else if (code) {
+    say('Exchanging the code…');
+    var clientId = recall('gauth_client_id');
+    var secret = recall('gauth_client_secret');
+    var verifier = recall('gauth_verifier');
+    if (!clientId || !verifier) {
+      say('This tab lost the sign-in it started. Press Start over and try again.', 'bad');
+    } else {
+      var form = 'code=' + encodeURIComponent(code) +
+                 '&client_id=' + encodeURIComponent(clientId) +
+                 '&client_secret=' + encodeURIComponent(secret) +
+                 '&redirect_uri=' + encodeURIComponent(REDIRECT) +
+                 '&grant_type=authorization_code' +
+                 '&code_verifier=' + encodeURIComponent(verifier);
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', TOKEN_URL, true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onload = function () {
+        var body = {};
+        try { body = JSON.parse(xhr.responseText); } catch (e) {}
+        if (xhr.status >= 200 && xhr.status < 300 && body.refresh_token) {
+          $('refreshToken').value = body.refresh_token;
+          $('copybox').style.display = 'block';
+          say('Connected. Copy the refresh token below.', 'ok');
+        } else if (body.refresh_token === undefined && xhr.status < 300) {
+          say('Google returned an access token but no refresh token. Press Start over — ' +
+              'the consent screen has to be shown again to issue one.', 'bad');
+        } else {
+          say('Token exchange failed: ' +
+              (body.error_description || body.error || ('HTTP ' + xhr.status)), 'bad');
+        }
+      };
+      xhr.onerror = function () { say('Could not reach Google to exchange the code.', 'bad'); };
+      xhr.send(form);
+    }
+  }
+})();
+</script>
+</body>
+</html>

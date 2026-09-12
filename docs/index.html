@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Assistant Settings</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --card: #171c24;
+    --card-2: #1f252f;
+    --line: #2b323d;
+    --text: #e8edf4;
+    --dim: #9aa6b6;
+    --accent: #35b8e8;
+    --accent-ink: #06202b;
+    --good: #4fd18b;
+    --bad: #ff7b72;
+    --warn: #f3c969;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 0 0 100px;
+  }
+  header {
+    padding: 22px 18px 14px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #182231 0%, var(--bg) 100%);
+  }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
+  main { padding: 14px; max-width: 680px; margin: 0 auto; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 0 0 14px; overflow: hidden; }
+  .card > summary {
+    list-style: none; cursor: pointer; padding: 14px 16px; font-weight: 600;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .card > summary::-webkit-details-marker { display: none; }
+  .card > summary .chev { color: var(--dim); font-size: 13px; font-weight: 400; }
+  .card[open] > summary { border-bottom: 1px solid var(--line); }
+  .body { padding: 4px 16px 16px; }
+
+  label.field { display: block; margin: 14px 0 0; }
+  label.field > span { display: block; font-size: 13px; color: var(--dim); margin-bottom: 5px; }
+  input[type=text], input[type=password], input[type=number], textarea, select {
+    width: 100%; background: var(--card-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 9px; padding: 10px 11px;
+    font: inherit; font-size: 15px; -webkit-appearance: none; appearance: none;
+  }
+  textarea { min-height: 96px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  select { background-image: none; }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row .lbl { flex: 1; min-width: 0; }
+  .row .lbl b { font-weight: 500; display: block; }
+  .row .lbl small { color: var(--dim); font-size: 12px; }
+
+  .switch { position: relative; width: 50px; height: 30px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; z-index: 2; }
+  .switch i { position: absolute; inset: 0; background: var(--card-2); border: 1px solid var(--line); border-radius: 999px; transition: background .15s; }
+  .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--dim); transition: transform .15s, background .15s; }
+  .switch input:checked + i { background: var(--accent); border-color: var(--accent); }
+  .switch input:checked + i::after { transform: translateX(20px); background: #fff; }
+
+  .btn {
+    display: inline-block; border: 1px solid var(--line); background: var(--card-2);
+    color: var(--text); border-radius: 9px; padding: 9px 14px; font: inherit; font-size: 14px;
+    cursor: pointer; margin: 10px 6px 0 0;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.danger { color: var(--bad); border-color: #45292b; }
+
+  .note { color: var(--dim); font-size: 13px; margin: 10px 0 0; }
+  .note code { background: var(--card-2); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  ol.steps { color: var(--dim); font-size: 13px; padding-left: 20px; margin: 10px 0 0; }
+  ol.steps li { margin: 5px 0; }
+
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .pill.ok { color: var(--good); border-color: #22503c; }
+  .pill.bad { color: var(--bad); border-color: #4d2b2b; }
+  .pill.warn { color: var(--warn); border-color: #4d4324; }
+
+  .listrow { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .listrow:first-child { border-top: 0; }
+  .listrow .grow { flex: 1; min-width: 0; }
+  .listrow .grow b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .listrow .grow small { color: var(--dim); font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+  .listrow .x { color: var(--bad); background: none; border: 0; font-size: 20px; padding: 4px 6px; cursor: pointer; }
+  .inline { display: flex; gap: 8px; margin-top: 12px; }
+  .inline input { flex: 1; }
+  .grid2 { display: flex; gap: 8px; }
+  .grid2 > * { flex: 1; }
+
+  .diag { font-size: 13px; margin: 8px 0 0; }
+  .diag div { padding: 6px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; }
+  .diag div:first-child { border-top: 0; }
+  .diag span:last-child { color: var(--dim); text-align: right; }
+
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: rgba(14,17,22,.94); border-top: 1px solid var(--line);
+    display: flex; gap: 10px; backdrop-filter: blur(8px);
+  }
+  footer .btn { margin: 0; flex: 1; text-align: center; }
+  .chatitem { border-top: 1px solid var(--line); padding: 10px 0; }
+  .chatitem:first-child { border-top: 0; }
+  .chatitem b { font-weight: 500; }
+  .chatitem small { display: block; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Assistant</h1>
+  <p id="subtitle">Settings</p>
+</header>
+
+<main>
+  <details class="card" open>
+    <summary>Connection <span class="pill" id="authPill">not set up</span></summary>
+    <div class="body">
+      <label class="field">
+        <span>Codex <code>auth.json</code></span>
+        <textarea id="auth_json" spellcheck="false" autocapitalize="off" autocorrect="off"
+                  placeholder='{"tokens":{"id_token":"...","access_token":"...","refresh_token":"...","account_id":"..."}}'></textarea>
+      </label>
+      <p class="note" id="authDetail"></p>
+      <ol class="steps">
+        <li>On a computer with the Codex CLI, run <code>codex login</code>.</li>
+        <li>Open <code>~/.codex/auth.json</code> and copy the whole file.</li>
+        <li>Paste it above. The access token is refreshed automatically from then on.</li>
+      </ol>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Assistant <span class="chev">prompt &amp; thinking</span></summary>
+    <div class="body">
+      <label class="field">
+        <span>System prompt</span>
+        <textarea id="system_prompt" spellcheck="false" style="min-height:76px"></textarea>
+      </label>
+      <label class="field">
+        <span>Thinking effort</span>
+        <select id="effort">
+          <option value="minimal">Minimal &mdash; fastest</option>
+          <option value="low">Low &mdash; quick</option>
+          <option value="medium">Medium &mdash; balanced</option>
+          <option value="high">High &mdash; slowest, most careful</option>
+        </select>
+      </label>
+      <div class="row" style="margin-top:14px">
+        <div class="lbl"><b>Web search</b><small>Let the model look things up</small></div>
+        <label class="switch"><input type="checkbox" id="web_search"><i></i></label>
+      </div>
+      <div class="row">
+        <div class="lbl"><b>Location</b><small>Share your position when the model asks for it</small></div>
+        <label class="switch"><input type="checkbox" id="location_enabled"><i></i></label>
+      </div>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Models <span class="chev" id="modelCount"></span></summary>
+    <div class="body">
+      <p class="note">Tick a model to offer it on the watch. The dot marks the one new chats start with.</p>
+      <div id="modelList"></div>
+      <div class="inline">
+        <input type="text" id="newModelId" placeholder="model id, e.g. gpt-5.2-codex"
+               spellcheck="false" autocapitalize="off" autocorrect="off">
+        <button class="btn" id="addModel" type="button">Add</button>
+      </div>
+      <button class="btn" id="refreshModels" type="button">Refresh catalog</button>
+      <p class="note" id="catalogNote"></p>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Watch <span class="chev">behaviour</span></summary>
+    <div class="body">
+      <div class="row">
+        <div class="lbl"><b>Listen on open</b><small>Start dictation the moment the app launches</small></div>
+        <label class="switch"><input type="checkbox" id="auto_dictation"><i></i></label>
+      </div>
+      <div class="row">
+        <div class="lbl"><b>Confirm what you said</b><small>Review the transcript before sending</small></div>
+        <label class="switch"><input type="checkbox" id="confirm_dictation"><i></i></label>
+      </div>
+      <div class="row">
+        <div class="lbl"><b>Timeline pins</b><small>Also put timers in the Pebble timeline</small></div>
+        <label class="switch"><input type="checkbox" id="timeline_pins"><i></i></label>
+      </div>
+      <label class="field">
+        <span>Text size</span>
+        <select id="font_scale">
+          <option value="0">Normal</option>
+          <option value="1">Large</option>
+          <option value="2">Extra large</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Longest reply shown on the watch (characters)</span>
+        <input type="number" id="reply_char_limit" min="200" max="4000" step="100">
+      </label>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Calendar <span class="pill" id="calPill">off</span></summary>
+    <div class="body">
+      <p class="note">CalDAV, read and write. For iCloud use <code>https://caldav.icloud.com</code> with your
+        Apple ID and an app-specific password from <code>account.apple.com</code>.</p>
+      <label class="field"><span>Server URL</span>
+        <input type="text" id="cal_url" spellcheck="false" autocapitalize="off" placeholder="https://caldav.icloud.com"></label>
+      <label class="field"><span>Username</span>
+        <input type="text" id="cal_user" spellcheck="false" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>Password</span>
+        <input type="password" id="cal_pass" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>Calendar URL (optional &mdash; skips discovery)</span>
+        <input type="text" id="cal_collection" spellcheck="false" autocapitalize="off"></label>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Reminders <span class="pill" id="remPill">off</span></summary>
+    <div class="body">
+      <p class="note">A separate CalDAV account for to-dos &mdash; Baikal, Nextcloud, Fastmail, iCloud, whatever holds them.</p>
+      <label class="field"><span>Server URL</span>
+        <input type="text" id="rem_url" spellcheck="false" autocapitalize="off" placeholder="https://baikal.example.com/dav.php/"></label>
+      <label class="field"><span>Username</span>
+        <input type="text" id="rem_user" spellcheck="false" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>Password</span>
+        <input type="password" id="rem_pass" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>List URL (optional &mdash; skips discovery)</span>
+        <input type="text" id="rem_collection" spellcheck="false" autocapitalize="off"></label>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Places <span class="chev" id="placeCount"></span></summary>
+    <div class="body">
+      <p class="note">Name the places you want to be reminded at. &ldquo;Remind me to water the plants when
+        I get home&rdquo; writes a reminder that your phone geofences &mdash; it fires on arrival even with
+        the watch off.</p>
+      <div id="placeList"></div>
+      <div class="inline">
+        <input type="text" id="newPlaceName" placeholder="home" spellcheck="false">
+        <button class="btn" id="usePlaceHere" type="button">Use here</button>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <input type="text" id="newPlaceLat" placeholder="latitude" spellcheck="false">
+        <input type="text" id="newPlaceLon" placeholder="longitude" spellcheck="false">
+        <input type="text" id="newPlaceRadius" placeholder="metres" spellcheck="false">
+      </div>
+      <button class="btn" id="addPlace" type="button">Add place</button>
+      <p class="note" id="placeNote"></p>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Notes <span class="pill" id="notesPill">off</span></summary>
+    <div class="body">
+      <p class="note">Apple Notes kept on a Gmail account lives in a Gmail label &mdash; usually
+        <code>Notes</code>. Connect Gmail and the assistant can write there, so notes appear in
+        Apple Notes on every device.</p>
+      <label class="field"><span>Google client ID</span>
+        <input type="text" id="gmail_client_id" spellcheck="false" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>Google client secret</span>
+        <input type="password" id="gmail_client_secret" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>Refresh token</span>
+        <input type="text" id="gmail_refresh_token" spellcheck="false" autocapitalize="off" autocorrect="off"></label>
+      <label class="field"><span>Gmail label holding your notes</span>
+        <input type="text" id="notes_label" spellcheck="false" autocapitalize="off" placeholder="Notes"></label>
+      <p class="note"><a id="oauthLink" href="google-auth.html" style="color:var(--accent)">Open the
+        Google connection helper</a> &mdash; it walks through creating the OAuth client and hands back a refresh token.</p>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Quick prompts <span class="chev" id="quickCount"></span></summary>
+    <div class="body">
+      <p class="note">Shown on the watch under Settings, for when you would rather not talk.</p>
+      <div id="quickList"></div>
+      <div class="inline">
+        <input type="text" id="newQuick" placeholder="What&rsquo;s next on my calendar?">
+        <button class="btn" id="addQuick" type="button">Add</button>
+      </div>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Diagnostics <span class="chev" id="diagWhen"></span></summary>
+    <div class="body">
+      <p class="note">These checks run on your phone right after each save, because the browser cannot
+        reach your servers directly. Save once, reopen this page, and the results appear here.</p>
+      <div class="diag" id="diagList"></div>
+    </div>
+  </details>
+
+  <details class="card">
+    <summary>Conversations <span class="chev" id="chatCount"></span></summary>
+    <div class="body">
+      <div id="chatList"></div>
+      <button class="btn" id="showTranscript" type="button">Show transcript</button>
+      <button class="btn danger" id="clearChats" type="button">Delete all conversations</button>
+      <textarea id="transcript" style="display:none;margin-top:12px;min-height:200px" readonly spellcheck="false"></textarea>
+      <p class="note" id="clearNote"></p>
+    </div>
+  </details>
+</main>
+
+<footer>
+  <button class="btn" id="cancel" type="button">Cancel</button>
+  <button class="btn primary" id="save" type="button">Save</button>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var payload = { settings: {}, auth: null, diagnostics: null, chats: [], version: '' };
+  var clearChatsRequested = false;
+
+  // --- incoming state -------------------------------------------------------
+  try {
+    var hash = window.location.hash.replace(/^#/, '');
+    if (hash) payload = JSON.parse(decodeURIComponent(hash));
+  } catch (e) {
+    document.getElementById('subtitle').textContent = 'Could not read current settings';
+  }
+  var S = payload.settings || {};
+  var models = (S.models || []).slice();
+  var places = (S.places || []).slice();
+  var quick = (S.quick_prompts || []).slice();
+
+  if (payload.version) $('subtitle').textContent = 'Version ' + payload.version;
+
+  // --- simple fields --------------------------------------------------------
+  var TEXT_FIELDS = ['auth_json', 'system_prompt', 'cal_url', 'cal_user', 'cal_pass',
+    'cal_collection', 'rem_url', 'rem_user', 'rem_pass', 'rem_collection',
+    'gmail_client_id', 'gmail_client_secret', 'gmail_refresh_token', 'notes_label'];
+  var BOOL_FIELDS = ['web_search', 'location_enabled', 'auto_dictation',
+    'confirm_dictation', 'timeline_pins'];
+
+  TEXT_FIELDS.forEach(function (key) {
+    var el = $(key);
+    if (el) el.value = S[key] == null ? '' : String(S[key]);
+  });
+  BOOL_FIELDS.forEach(function (key) {
+    var el = $(key);
+    if (el) el.checked = !!S[key];
+  });
+  $('effort').value = S.effort || 'medium';
+  $('font_scale').value = String(S.font_scale || 0);
+  $('reply_char_limit').value = S.reply_char_limit || 1500;
+
+  // --- connection status ----------------------------------------------------
+  (function () {
+    var pill = $('authPill');
+    var detail = $('authDetail');
+    var auth = payload.auth;
+    if (!auth || !auth.ok) {
+      pill.className = 'pill';
+      pill.textContent = 'not set up';
+      detail.textContent = auth && auth.reason ? auth.reason : '';
+      return;
+    }
+    if (auth.expired && !auth.can_refresh) {
+      pill.className = 'pill bad';
+      pill.textContent = 'expired';
+    } else {
+      pill.className = 'pill ok';
+      pill.textContent = auth.plan ? ('ChatGPT ' + auth.plan) : 'connected';
+    }
+    var bits = [];
+    if (auth.email) bits.push(auth.email);
+    if (auth.account_id) bits.push('account ' + auth.account_id.slice(0, 12) + '…');
+    if (auth.expires_at) bits.push('token good until ' + auth.expires_at.replace('T', ' ').slice(0, 16) + ' UTC');
+    detail.textContent = bits.join(' · ');
+  })();
+
+  function setPill(id, on, onText) {
+    var el = $(id);
+    el.className = on ? 'pill ok' : 'pill';
+    el.textContent = on ? (onText || 'on') : 'off';
+  }
+  function refreshPills() {
+    setPill('calPill', !!($('cal_url').value && $('cal_user').value && $('cal_pass').value));
+    setPill('remPill', !!($('rem_url').value && $('rem_user').value && $('rem_pass').value));
+    setPill('notesPill', !!($('gmail_client_id').value && $('gmail_refresh_token').value));
+  }
+  ['cal_url', 'cal_user', 'cal_pass', 'rem_url', 'rem_user', 'rem_pass',
+   'gmail_client_id', 'gmail_refresh_token'].forEach(function (id) {
+    $(id).addEventListener('input', refreshPills);
+  });
+  refreshPills();
+
+  // --- models ---------------------------------------------------------------
+  function renderModels() {
+    var host = $('modelList');
+    host.innerHTML = '';
+    if (!models.length) {
+      host.innerHTML = '<p class="note">No models yet. Add one below or refresh the catalog.</p>';
+    }
+    models.forEach(function (model, index) {
+      var row = document.createElement('div');
+      row.className = 'listrow';
+
+      var toggle = document.createElement('label');
+      toggle.className = 'switch';
+      var box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = model.show !== false;
+      box.addEventListener('change', function () { models[index].show = box.checked; renderModels(); });
+      toggle.appendChild(box);
+      toggle.appendChild(document.createElement('i'));
+
+      var text = document.createElement('div');
+      text.className = 'grow';
+      text.innerHTML = '<b></b><small></small>';
+      text.querySelector('b').textContent = model.label || model.id;
+      text.querySelector('small').textContent = model.id;
+
+      var star = document.createElement('button');
+      star.type = 'button';
+      star.className = 'btn';
+      star.style.margin = '0';
+      star.style.padding = '6px 10px';
+      var isDefault = (S.default_model === model.id);
+      star.textContent = isDefault ? '● default' : 'make default';
+      if (isDefault) { star.style.borderColor = 'var(--accent)'; star.style.color = 'var(--accent)'; }
+      star.addEventListener('click', function () {
+        S.default_model = model.id;
+        models[index].show = true;
+        renderModels();
+      });
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'x';
+      del.innerHTML = '&times;';
+      del.addEventListener('click', function () {
+        models.splice(index, 1);
+        renderModels();
+      });
+
+      row.appendChild(toggle);
+      row.appendChild(text);
+      row.appendChild(star);
+      row.appendChild(del);
+      host.appendChild(row);
+    });
+    var shown = models.filter(function (m) { return m.show !== false; }).length;
+    $('modelCount').textContent = shown + ' of ' + models.length + ' on watch';
+  }
+
+  $('addModel').addEventListener('click', function () {
+    var id = $('newModelId').value.replace(/^\s+|\s+$/g, '');
+    if (!id) return;
+    for (var i = 0; i < models.length; i++) {
+      if (models[i].id === id) { $('newModelId').value = ''; return; }
+    }
+    models.push({ id: id, label: id, show: true });
+    $('newModelId').value = '';
+    renderModels();
+  });
+
+  $('refreshModels').addEventListener('click', function () {
+    var note = $('catalogNote');
+    note.textContent = 'Fetching…';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', 'models.json?t=' + Date.now(), true);
+    xhr.onload = function () {
+      try {
+        var catalog = JSON.parse(xhr.responseText);
+        var added = 0;
+        (catalog.models || []).forEach(function (entry) {
+          for (var i = 0; i < models.length; i++) {
+            if (models[i].id === entry.id) { models[i].label = entry.label || models[i].label; return; }
+          }
+          models.push({ id: entry.id, label: entry.label || entry.id, show: false });
+          added++;
+        });
+        note.textContent = added ? (added + ' new model(s) added, switched off by default.')
+                                 : 'Catalog already up to date' +
+                                   (catalog.updated ? ' (' + catalog.updated + ').' : '.');
+        renderModels();
+      } catch (err) {
+        note.textContent = 'Could not read the catalog.';
+      }
+    };
+    xhr.onerror = function () { note.textContent = 'Could not reach the catalog.'; };
+    xhr.send(null);
+  });
+  renderModels();
+
+  // --- places ---------------------------------------------------------------
+  function renderPlaces() {
+    var host = $('placeList');
+    host.innerHTML = '';
+    places.forEach(function (place, index) {
+      var row = document.createElement('div');
+      row.className = 'listrow';
+      var text = document.createElement('div');
+      text.className = 'grow';
+      text.innerHTML = '<b></b><small></small>';
+      text.querySelector('b').textContent = place.name;
+      text.querySelector('small').textContent =
+        Number(place.lat).toFixed(5) + ', ' + Number(place.lon).toFixed(5) +
+        '  ·  ' + (place.radius || 100) + ' m';
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'x';
+      del.innerHTML = '&times;';
+      del.addEventListener('click', function () { places.splice(index, 1); renderPlaces(); });
+      row.appendChild(text);
+      row.appendChild(del);
+      host.appendChild(row);
+    });
+    $('placeCount').textContent = places.length ? (places.length + ' saved') : 'none yet';
+  }
+
+  $('usePlaceHere').addEventListener('click', function () {
+    var note = $('placeNote');
+    if (!navigator.geolocation) { note.textContent = 'This browser will not share a location.'; return; }
+    note.textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      $('newPlaceLat').value = pos.coords.latitude.toFixed(6);
+      $('newPlaceLon').value = pos.coords.longitude.toFixed(6);
+      if (!$('newPlaceRadius').value) $('newPlaceRadius').value = '150';
+      note.textContent = 'Filled in from your current position.';
+    }, function (err) {
+      note.textContent = 'Could not get a fix' + (err && err.message ? ': ' + err.message : '.');
+    }, { enableHighAccuracy: true, timeout: 15000 });
+  });
+
+  $('addPlace').addEventListener('click', function () {
+    var name = $('newPlaceName').value.replace(/^\s+|\s+$/g, '');
+    var lat = parseFloat($('newPlaceLat').value);
+    var lon = parseFloat($('newPlaceLon').value);
+    var radius = parseInt($('newPlaceRadius').value, 10);
+    if (!name || isNaN(lat) || isNaN(lon)) {
+      $('placeNote').textContent = 'A place needs a name, a latitude and a longitude.';
+      return;
+    }
+    places.push({ name: name, lat: lat, lon: lon, radius: isNaN(radius) ? 150 : radius });
+    $('newPlaceName').value = $('newPlaceLat').value = $('newPlaceLon').value = $('newPlaceRadius').value = '';
+    $('placeNote').textContent = '';
+    renderPlaces();
+  });
+  renderPlaces();
+
+  // --- quick prompts --------------------------------------------------------
+  function renderQuick() {
+    var host = $('quickList');
+    host.innerHTML = '';
+    quick.forEach(function (text, index) {
+      var row = document.createElement('div');
+      row.className = 'listrow';
+      var label = document.createElement('div');
+      label.className = 'grow';
+      label.textContent = text;
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'x';
+      del.innerHTML = '&times;';
+      del.addEventListener('click', function () { quick.splice(index, 1); renderQuick(); });
+      row.appendChild(label);
+      row.appendChild(del);
+      host.appendChild(row);
+    });
+    $('quickCount').textContent = quick.length ? (quick.length + ' saved') : 'none';
+  }
+  $('addQuick').addEventListener('click', function () {
+    var text = $('newQuick').value.replace(/^\s+|\s+$/g, '');
+    if (!text) return;
+    quick.push(text);
+    $('newQuick').value = '';
+    renderQuick();
+  });
+  renderQuick();
+
+  // --- diagnostics ----------------------------------------------------------
+  (function () {
+    var report = payload.diagnostics;
+    var host = $('diagList');
+    if (!report) {
+      host.innerHTML = '<p class="note">Nothing checked yet.</p>';
+      $('diagWhen').textContent = '';
+      return;
+    }
+    $('diagWhen').textContent = new Date(report.at).toLocaleString();
+    [['Calendar', report.calendar], ['Reminders', report.reminders], ['Notes', report.notes]]
+      .forEach(function (pair) {
+        var row = document.createElement('div');
+        var name = document.createElement('span');
+        name.textContent = pair[0];
+        var value = document.createElement('span');
+        value.textContent = pair[1] || '';
+        if (/^OK/.test(pair[1])) value.style.color = 'var(--good)';
+        else if (/^FAILED/.test(pair[1])) value.style.color = 'var(--bad)';
+        row.appendChild(name);
+        row.appendChild(value);
+        host.appendChild(row);
+      });
+  })();
+
+  // --- conversations --------------------------------------------------------
+  (function () {
+    var chats = payload.chats || [];
+    var host = $('chatList');
+    $('chatCount').textContent = chats.length ? (chats.length + ' stored') : 'none';
+    if (!chats.length) {
+      host.innerHTML = '<p class="note">No conversations yet.</p>';
+      return;
+    }
+    chats.forEach(function (chat) {
+      var item = document.createElement('div');
+      item.className = 'chatitem';
+      item.innerHTML = '<b></b><small></small>';
+      item.querySelector('b').textContent = chat.title || 'Untitled';
+      item.querySelector('small').textContent =
+        (chat.turns || []).length + ' turns · ' + new Date(chat.updated).toLocaleString();
+      host.appendChild(item);
+    });
+
+    $('showTranscript').addEventListener('click', function () {
+      var box = $('transcript');
+      if (box.style.display === 'block') { box.style.display = 'none'; return; }
+      var lines = [];
+      chats.forEach(function (chat) {
+        lines.push('# ' + (chat.title || 'Untitled'));
+        lines.push(new Date(chat.updated).toISOString());
+        (chat.turns || []).forEach(function (turn) {
+          lines.push('');
+          lines.push('You: ' + turn.q);
+          lines.push('Assistant: ' + turn.a);
+        });
+        lines.push('');
+        lines.push('---');
+        lines.push('');
+      });
+      box.value = lines.join('\n');
+      box.style.display = 'block';
+      box.focus();
+      box.setSelectionRange(0, box.value.length);
+    });
+
+    $('clearChats').addEventListener('click', function () {
+      clearChatsRequested = !clearChatsRequested;
+      $('clearNote').textContent = clearChatsRequested
+        ? 'All conversations will be deleted when you press Save. Tap again to undo.'
+        : '';
+      $('clearChats').textContent = clearChatsRequested
+        ? 'Will delete on save — tap to undo'
+        : 'Delete all conversations';
+    });
+  })();
+
+  // --- saving ---------------------------------------------------------------
+  function collect() {
+    var next = {};
+    TEXT_FIELDS.forEach(function (key) {
+      var el = $(key);
+      if (el) next[key] = el.value.replace(/^\s+|\s+$/g, '');
+    });
+    BOOL_FIELDS.forEach(function (key) {
+      var el = $(key);
+      if (el) next[key] = !!el.checked;
+    });
+    next.effort = $('effort').value;
+    next.font_scale = parseInt($('font_scale').value, 10) || 0;
+    next.reply_char_limit = Math.max(200, Math.min(4000, parseInt($('reply_char_limit').value, 10) || 1500));
+    next.models = models;
+    next.places = places;
+    next.quick_prompts = quick;
+    next.default_model = S.default_model || (models.length ? models[0].id : '');
+
+    // Hiding the model a chat is using would strand the watch on a model it can
+    // no longer show, so fall back to the default.
+    var stillVisible = false;
+    for (var i = 0; i < models.length; i++) {
+      if (models[i].id === S.active_model && models[i].show !== false) stillVisible = true;
+    }
+    next.active_model = stillVisible ? S.active_model : next.default_model;
+    if (!next.system_prompt) next.system_prompt = 'You are a helpful assistant.';
+    if (!next.notes_label) next.notes_label = 'Notes';
+    return next;
+  }
+
+  function close(response) {
+    var target = 'pebblejs://close';
+    if (response) target += '#' + encodeURIComponent(JSON.stringify(response));
+    document.location = target;
+  }
+
+  $('save').addEventListener('click', function () {
+    close({ settings: collect(), action: clearChatsRequested ? 'clear_chats' : 'save' });
+  });
+  $('cancel').addEventListener('click', function () { close(null); });
+})();
+</script>
+</body>
+</html>

@@ -48,10 +48,10 @@ conversation history can all change without a new watch build.
 | Reply | SELECT | Keep talking in this conversation |
 | Reply | SELECT (hold) | Options for this conversation |
 | Reply | BACK | Chats list |
-| Chats list | UP / DOWN | Move. Past either edge goes back to the conversation |
-| Chats list | SELECT | Open the row |
-| Chats list | BACK | Back to the conversation, or out of the app |
-| Submenu | UP / DOWN | Move. The edges bounce; submenus are left with BACK |
+| Chats list | UP / DOWN | Move through the list |
+| Chats list | SELECT | Open the row &mdash; pick a conversation to go back into it |
+| Chats list | BACK | Leave the app |
+| Submenu | UP / DOWN | Move through the list |
 | Submenu | BACK | Back one level |
 | Reminder alert | SELECT / UP | Dismiss / snooze 9 minutes |
 
@@ -67,6 +67,9 @@ Long-pressing SELECT inside a conversation opens **Options**:
 The chats list is `[Settings]`, `[New Chat]`, then your history, with **New
 Chat** preselected — so backing out of the microphone leaves a retry one press
 away.
+
+Lists do not wrap and do not exit at their ends; they stop. The way back into a
+conversation is to select it. Every screen's title bar carries the clock.
 
 Pebble's dictation is a system screen that owns all four buttons while it is
 recording, so BACK is the only gesture available inside it. That is why

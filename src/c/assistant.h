@@ -176,13 +176,14 @@ void reply_window_set_status(const char *text, int32_t spinner);
 void reply_window_set_error(const char *text);
 void reply_window_set_alert(const char *title, int32_t cookie);
 void reply_window_show_turn(const Turn *turn);
-void reply_window_return(void);   // re-show existing content from the chats list
 void reply_window_hide(void);     // drop back to the chats list
+void reply_window_refresh(void);  // re-measure after a font change, and redraw
 void reply_window_forget(void);   // discard the shown turn, then hide
 int32_t reply_window_turn_index(void);  // turn on screen, or -1 if none
 
 void list_window_init(void);
 void list_window_deinit(void);
+void list_window_refresh(void);   // re-measure after a font change, and redraw
 void list_push_root(void);        // the chats list, pushed at boot
 void list_window_begin(int32_t list_id, int32_t count, const char *title);
 void list_window_add(int32_t row, const ListRow *item);

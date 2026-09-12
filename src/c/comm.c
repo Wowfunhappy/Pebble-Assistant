@@ -191,9 +191,12 @@ static void apply_settings(Tuple *str, Tuple *pint, Tuple *pint2, Tuple *pflag) 
   if (str) str_copy(s_model_label, sizeof(s_model_label), str->value->cstring);
   if (pint) s_effort = pint->value->int32;
   if (pint2) s_flags = pint2->value->int32;
-  if (pflag) {
+  if (pflag && pflag->value->int32 != s_font_scale) {
     s_font_scale = pflag->value->int32;
     theme_set_font_scale(s_font_scale);
+    // Every cached text measurement was taken with the old font.
+    reply_window_refresh();
+    list_window_refresh();
   }
   save_cached_settings();
 }

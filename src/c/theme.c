@@ -74,31 +74,62 @@ int16_t theme_header_height(void) {
 #endif
 }
 
-// A compact title bar: accent rule, left title, optional right-aligned badge.
+// Honours the watch's own 12/24-hour setting.
+static void header_clock(char *buffer, size_t capacity) {
+  time_t now = time(NULL);
+  struct tm *local = localtime(&now);
+  if (clock_is_24h_style()) {
+    strftime(buffer, capacity, "%H:%M", local);
+  } else {
+    strftime(buffer, capacity, "%I:%M", local);
+    if (buffer[0] == '0') memmove(buffer, buffer + 1, strlen(buffer));
+  }
+}
+
+static int16_t text_width(const char *text, GFont font, int16_t limit) {
+  return graphics_text_layout_get_content_size(text, font, GRect(0, 0, limit, 40),
+             GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
+}
+
+// A compact title bar: accent rule, left title, then the optional badge and the
+// clock packed against the right edge.  It is a watch; the time earns its place.
 void theme_draw_header(GContext *ctx, GRect bounds, const char *left, const char *right) {
   const Theme *t = theme();
   const int16_t height = theme_header_height();
+  const int16_t top = bounds.origin.y;
 
   graphics_context_set_fill_color(ctx, t->surface);
-  graphics_fill_rect(ctx, GRect(bounds.origin.x, bounds.origin.y, bounds.size.w, height), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(bounds.origin.x, top, bounds.size.w, height), 0, GCornerNone);
   graphics_context_set_fill_color(ctx, t->accent);
-  graphics_fill_rect(ctx, GRect(bounds.origin.x, bounds.origin.y + height - 2, bounds.size.w, 2), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(bounds.origin.x, top + height - 2, bounds.size.w, 2), 0, GCornerNone);
 
-  GFont font = theme_font_title();
-  int16_t right_w = 0;
+  GFont small = theme_font_small();
+  int16_t edge = bounds.origin.x + bounds.size.w - 4;
+  int16_t baseline = top + (height - 16) / 2 - 2;
+
+  char clock_text[10];
+  header_clock(clock_text, sizeof(clock_text));
+  int16_t clock_w = text_width(clock_text, small, bounds.size.w);
+  graphics_context_set_text_color(ctx, t->text_dim);
+  graphics_draw_text(ctx, clock_text, small, GRect(edge - clock_w, baseline, clock_w, 18),
+                     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+  edge -= clock_w + 6;
+
   if (right && right[0]) {
-    right_w = graphics_text_layout_get_content_size(right, font,
-                  GRect(0, 0, bounds.size.w, height), GTextOverflowModeTrailingEllipsis,
-                  GTextAlignmentRight).w + 6;
+    int16_t badge_w = text_width(right, small, bounds.size.w);
     graphics_context_set_text_color(ctx, t->accent);
-    graphics_draw_text(ctx, right, font,
-        GRect(bounds.origin.x + bounds.size.w - right_w - 4, bounds.origin.y - 1, right_w, height),
-        GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+    graphics_draw_text(ctx, right, small, GRect(edge - badge_w, baseline, badge_w, 18),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+    edge -= badge_w + 6;
   }
+
   if (left && left[0]) {
-    graphics_context_set_text_color(ctx, t->text);
-    graphics_draw_text(ctx, left, font,
-        GRect(bounds.origin.x + 4, bounds.origin.y - 1, bounds.size.w - 8 - right_w, height),
-        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    int16_t title_w = edge - (bounds.origin.x + 4);
+    if (title_w > 8) {
+      graphics_context_set_text_color(ctx, t->text);
+      graphics_draw_text(ctx, left, theme_font_title(),
+          GRect(bounds.origin.x + 4, top - 1, title_w, height),
+          GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+    }
   }
 }

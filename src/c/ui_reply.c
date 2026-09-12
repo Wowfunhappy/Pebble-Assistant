@@ -471,11 +471,6 @@ void reply_window_show_turn(const Turn *turn) {
   if (s_canvas) layer_mark_dirty(s_canvas);
 }
 
-void reply_window_return(void) {
-  if (!reply_window_has_content()) return;
-  ensure_pushed();
-}
-
 // --- buttons ----------------------------------------------------------------
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
@@ -581,6 +576,14 @@ void reply_window_init(void) {
 void reply_window_deinit(void) {
   if (s_tick) { app_timer_cancel(s_tick); s_tick = NULL; }
   if (s_window) { window_destroy(s_window); s_window = NULL; }
+}
+
+// Text metrics depend on the font, so a text-size change has to re-measure the
+// turn.  Also used by the minute tick that redraws the header clock.
+void reply_window_refresh(void) {
+  recompute_layout();
+  if (s_scroll > max_scroll()) s_scroll = s_scroll_to = max_scroll();
+  if (s_canvas) layer_mark_dirty(s_canvas);
 }
 
 void reply_window_hide(void) {

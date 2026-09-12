@@ -60,7 +60,6 @@ static bool s_bouncing;
 
 static void ensure_tick(void);
 static void relayout(void);
-static bool edge_exits_here(void);
 
 static uint32_t elapsed_ms(uint32_t start) { return (s_phase - start) * TICK_MS; }
 
@@ -270,23 +269,6 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     draw_row(ctx, b, i, y, i == s_sel);
   }
 
-  // Edge affordance, drawn only where running off the end actually goes
-  // somewhere -- promising an exit a submenu will not honour is worse than
-  // showing nothing.
-  if (edge_exits_here()) {
-    graphics_context_set_stroke_color(ctx, t->accent_dim);
-    int16_t cx = b.size.w / 2;
-    if (s_sel == 0) {
-      for (int i = 0; i < 3; i++)
-        graphics_draw_line(ctx, GPoint(cx - 4 + i, top + i), GPoint(cx + 4 - i, top + i));
-    }
-    if (s_sel == s_row_count - 1) {
-      for (int i = 0; i < 3; i++)
-        graphics_draw_line(ctx, GPoint(cx - 4 + i, b.size.h - 1 - i),
-                           GPoint(cx + 4 - i, b.size.h - 1 - i));
-    }
-  }
-
   theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL);
   toast_draw(ctx, b);
 }
@@ -381,27 +363,12 @@ static void edge_bounce(int8_t dir) {
   ensure_tick();
 }
 
-// Only the root chats list can be left by scrolling off the end: that is the
-// way back to the conversation.  A submenu is left with BACK, so running off
-// its edge just bounces -- sliding out of Settings while hunting for a row is
-// never what was meant.
-static bool edge_exits_here(void) {
-  return s_depth <= 1 && reply_window_has_content();
-}
-
+// No list is left by scrolling off its end.  The way back to a conversation is
+// to select it, and BACK leaves a submenu; an over-scroll that silently changed
+// screens turned out to be far too easy to trigger while hunting for a row.
 static void pop_current(void) {
-  if (s_depth <= 1) {
-    if (reply_window_has_content()) reply_window_return();
-    else edge_bounce(0);
-    return;
-  }
+  if (s_depth <= 1) { edge_bounce(0); return; }
   window_stack_pop(true);
-}
-
-static void edge_exit(int8_t dir) {
-  if (!edge_exits_here()) { edge_bounce(dir); return; }
-  vibe_soft();
-  pop_current();
 }
 
 void list_open(int32_t list_id) {
@@ -497,13 +464,13 @@ static void activate(void) {
 
 static void up_click(ClickRecognizerRef recognizer, void *context) {
   if (s_loading) return;
-  if (s_sel <= 0) edge_exit(-1);
+  if (s_sel <= 0) edge_bounce(-1);
   else move_selection(-1);
 }
 
 static void down_click(ClickRecognizerRef recognizer, void *context) {
   if (s_loading) return;
-  if (s_sel >= s_row_count - 1) edge_exit(1);
+  if (s_sel >= s_row_count - 1) edge_bounce(1);
   else move_selection(1);
 }
 
@@ -567,6 +534,14 @@ void list_window_init(void) {
       .disappear = window_disappear,
     });
   }
+}
+
+// Row heights follow the font, so a text-size change has to re-measure.  Also
+// used by the minute tick that redraws the header clock.
+void list_window_refresh(void) {
+  relayout();
+  if (s_row_count > 0 && s_sel < s_row_count) s_hl = s_hl_to = row_top(s_sel);
+  mark_dirty();
 }
 
 void list_window_deinit(void) {

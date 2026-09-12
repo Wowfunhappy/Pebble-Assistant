@@ -12,12 +12,19 @@ static void boot_dictation(void *data) {
   dictation_start();
 }
 
+// The header carries a clock, so it has to be redrawn when the minute turns.
+static void minute_tick(struct tm *tick_time, TimeUnits units_changed) {
+  reply_window_refresh();
+  list_window_refresh();
+}
+
 static void init(void) {
   comm_init();
   timers_init();
   reply_window_init();
   list_window_init();
   list_push_root();
+  tick_timer_service_subscribe(MINUTE_UNIT, minute_tick);
   comm_send_hello();
 
   int32_t cookie = -1;
@@ -30,6 +37,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  tick_timer_service_unsubscribe();
   if (s_boot_timer) {
     app_timer_cancel(s_boot_timer);
     s_boot_timer = NULL;

@@ -63,10 +63,13 @@ of it. Submenus stack above whichever is in front.
   nothing. An absent `WINT` must mean append -- defaulting to 0 would wipe the
   thread.
 - Cancelling dictation hides the reply view, revealing the chats list.
-- Only the root chats list exits by scrolling past an edge, and only when there
-  is a conversation to go back to. Submenus bounce; they are left with BACK.
-  The edge chevron is drawn only where the gesture actually does something.
-- The root list pops to the conversation if one exists, otherwise it bounces.
+- No list exits by scrolling off its end -- every list simply stops, with a
+  rubber-band bounce. The way back into a conversation is to select it, and BACK
+  leaves a submenu. An over-scroll that silently changed screens was far too
+  easy to trigger while hunting for a row.
+- Text size lives on the phone only. A change arrives in PEVT_SETTINGS and must
+  re-measure both windows: every cached text metric was taken with the old font.
+- The header clock means a minute tick has to redraw whichever window is front.
 
 Dictation is a system modal that owns all four buttons; BACK is the only signal
 it gives back. Do not design gestures that need UP/DOWN during recording.

@@ -375,10 +375,14 @@ static void edge_exit(int8_t dir) {
 
 static void push_list(int32_t list_id) {
   if (s_depth >= LIST_DEPTH) { toast_show("Too deep"); return; }
-  s_list_ids[s_depth] = list_id;
-  window_stack_push(s_windows[s_depth], true);
-  s_depth++;
-  list_request(list_id);
+  int target = s_depth;
+  s_list_ids[target] = list_id;
+  // window_stack_push runs the new window's appear handler synchronously, and
+  // that handler is what owns s_depth (and issues the list request).  Do not
+  // also bump s_depth here: counting the same push twice leaves front_canvas()
+  // pointing at a window that was never loaded, and the list stops repainting.
+  window_stack_push(s_windows[target], true);
+  if (s_depth <= target) s_depth = target + 1;
 }
 
 void list_push_root(void) {

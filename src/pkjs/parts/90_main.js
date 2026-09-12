@@ -48,7 +48,7 @@ function askModel(question) {
   if (!text) return;
 
   if (!hasCredentials()) {
-    sendError('Open Assistant settings on your phone and paste your Codex auth.json.');
+    sendError('Paste your Codex auth.json in Assistant settings on your phone.');
     return;
   }
 

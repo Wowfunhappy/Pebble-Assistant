@@ -73,30 +73,75 @@ it gives back. Do not design gestures that need UP/DOWN during recording.
   `app_EMoamEEZ73f0CkXaXp7hrann`. Refreshed tokens are cached under a
   fingerprint of the pasted blob, so pasting a new `auth.json` invalidates them.
 
-## Testing without hardware
+## Building and testing
 
-There is no Pebble SDK in most sandboxes, so two harnesses exist to keep this
-honest. They are not in the repo; recreate them if you need them.
-
-- **C**: write a stub `pebble.h` declaring the SDK surface, then
-  `gcc -fsyntax-only -Wall -Wextra -I<stub> src/c/*.c`, plus an `nm` pass over
-  the objects to catch unresolved cross-module symbols.
-- **JS**: concatenate the parts exactly as `wscript` does, run the bundle in a
-  `vm` context with stubs for `Pebble`, `localStorage`, `XMLHttpRequest` and
-  `navigator`, then drive `appmessage` events and assert on what gets sent to
-  the watch. Mock the Codex SSE stream and a CalDAV server; both found real bugs.
-
-With hardware:
+The SDK installs cleanly in a sandbox, so there is no excuse for shipping an
+unbuilt change.
 
 ```sh
-for f in src/pkjs/parts/*.js; do node --check "$f"; done
-pebble build && pebble install --phone 192.168.x.x
+uv venv /tmp/pblenv --python 3.11
+uv pip install --python /tmp/pblenv/bin/python pebble-tool   # 5.x, Core Devices, py>=3.10
+/tmp/pblenv/bin/pebble sdk install 4.33.1                    # pulls the ARM toolchain too
+export PATH="/tmp/pblenv/bin:$PATH"
+pebble build
 ```
 
-Then check, in this order: dictation opens on launch; BACK lands on the chats
-list with New Chat selected; a reply scrolls and the edges move between turns;
-Settings round-trips and Diagnostics reports each service by name; a timer both
-vibrates and appears in the timeline.
+A clean build must produce **zero warnings from `src/c/`**, and the PBW must
+contain a single root-level `pebble-js-app.js`:
+
+```sh
+python3 -c "import zipfile; print(zipfile.ZipFile('build/Pebble-Assistant.pbw').namelist())"
+```
+
+### The emulator
+
+Worth the setup: it runs the real firmware *and* the real PebbleKit JS, and it
+has already caught bugs that reading the code did not.
+
+```sh
+apt-get install -y --no-install-recommends libsdl2-2.0-0   # qemu-pebble needs it
+export SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
+pebble install --emulator emery
+pebble screenshot --emulator emery --no-open shot.png
+pebble emu-button --emulator emery click up|down|select|back
+pebble logs --emulator emery
+```
+
+Two environment gotchas:
+
+- **No IPv6 in the sandbox.** pypkjs binds its websocket with an unspecified
+  address, which gevent resolves to AF_INET6, and it dies with
+  `OSError: [Errno 97]` while QEMU keeps running — so the tool just reports
+  `Connection refused`. Patch the installed package to bind IPv4:
+  `pypkjs/runner/websocket.py`, `pywsgi.WSGIServer(("", self.port)` ->
+  `("127.0.0.1", self.port)`.
+- **Stale state.** `/tmp/pb-emulator.json` holds the QEMU/pypkjs pids. Recycled
+  pids make the tool insist "QEMU is already running". Delete the file and
+  `pkill -f qemu-pebble; pkill -f pypkjs`.
+
+What to expect on the emulator, so you do not chase ghosts:
+
+- There is no voice service, so dictation always ends with status 3
+  (`SystemAborted`) after ~8 s. The app retries once and then lands on the chats
+  list. Allow ~20 s after install before driving the UI.
+- `pebble send-app-message` does not deliver in this build. To exercise the
+  reply view, drive it through PKJS instead (a quick prompt is the shortest
+  path) rather than injecting `PEVT_*` messages by hand.
+
+### Without the SDK
+
+If the SDK genuinely cannot be installed, the fallbacks are a stub `pebble.h`
+plus `gcc -fsyntax-only` and an `nm` pass for unresolved symbols, and running
+the concatenated JS bundle in a `vm` context with stubs for `Pebble`,
+`localStorage`, `XMLHttpRequest` and `navigator`. Both are worth keeping in a
+scratch directory; the JS one, driven against a mocked Codex SSE stream and a
+mocked CalDAV server, found two real bugs.
+
+Before release, check in this order: dictation opens on launch; BACK lands on
+the chats list with New Chat selected; a reply scrolls and the edges move
+between turns; submenus repaint after every keypress; Settings round-trips and
+Diagnostics reports each service by name; a timer both vibrates and appears in
+the timeline.
 
 ## Config page
 

@@ -104,7 +104,8 @@ function sendStatus(text, spinner) {
 }
 
 function sendError(text) {
-  sendToWatch({ PEVT: PEVT_ERROR, PSTR: trimText(text, 120) });
+  // Must fit MAX_STATUS_LEN on the watch, or the tail is cut mid-word.
+  sendToWatch({ PEVT: PEVT_ERROR, PSTR: trimText(text, 92) });
 }
 
 function sendToast(text) {

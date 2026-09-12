@@ -86,7 +86,7 @@
 #define MAX_QUESTION_LEN   600
 #define MAX_ANSWER_LEN     2048
 #define MAX_TITLE_LEN      64
-#define MAX_STATUS_LEN     64
+#define MAX_STATUS_LEN     96   // also holds error text, which runs longer
 #define MAX_ROW_LABEL_LEN  40
 #define MAX_ROW_SUB_LEN    32
 #define MAX_LIST_ROWS      20

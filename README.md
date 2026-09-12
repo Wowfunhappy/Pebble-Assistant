@@ -122,24 +122,35 @@ watchface.
 
 ## Building
 
-Needs the [Rebble SDK / pebble tool](https://developer.rebble.io).
+Needs the Core Devices `pebble-tool` (5.x, Python 3.10+); it fetches the ARM
+toolchain for you.
 
 ```sh
+uv venv /tmp/pblenv --python 3.11
+uv pip install --python /tmp/pblenv/bin/python pebble-tool
+/tmp/pblenv/bin/pebble sdk install 4.33.1
+export PATH="/tmp/pblenv/bin:$PATH"
+
 pebble build
 pebble install --phone 192.168.x.x
 ```
+
+It also runs in the emulator, which executes the real firmware and the real
+PebbleKit JS:
+
+```sh
+pebble install --emulator emery
+pebble screenshot --emulator emery --no-open shot.png
+pebble emu-button --emulator emery click down
+```
+
+The emulator has no voice service, so dictation aborts after a few seconds and
+the app falls back to the chats list — that is expected, not a bug.
 
 The JS side is authored as ordered parts under `src/pkjs/parts/` and
 concatenated by `wscript` into a single flat `pebble-js-app.js`. Keep it that
 way: the Core Devices iOS app can hang on "Loading watchapp" when the JS entry
 point is a multi-file or `index.js` bundle.
-
-Before building, the checks that do not need hardware:
-
-```sh
-for f in src/pkjs/parts/*.js; do node --check "$f"; done
-git diff --check
-```
 
 ### Hosting the settings page
 

@@ -139,6 +139,23 @@ function appendTurn(question, answer) {
   return chat;
 }
 
+// Every launch of the watch app starts a clean conversation.  Picking up a
+// half-finished chat from yesterday is never what someone means when they raise
+// their wrist and start talking; the old chat is still one press away in the
+// list.  An already-empty chat is reused so relaunching does not churn the
+// store.
+function startFreshConversation() {
+  var store = chatStore();
+  var current = findChat(store, store.active_id);
+  if (current && !current.turns.length) {
+    _liveInput = [];
+    _liveChatId = current.id;
+    _liveSessionId = uuid4();
+    return current;
+  }
+  return newChat();
+}
+
 function turnAt(chat, index) {
   if (!chat || !chat.turns.length) return null;
   var count = chat.turns.length;

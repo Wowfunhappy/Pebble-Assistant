@@ -192,8 +192,10 @@ function sendChatsList() {
   ];
   var chats = chatList();
   for (var i = 0; i < chats.length && rows.length < 20; i++) {
+    var count = chats[i].turns;
     rows.push(makeRow(chats[i].title,
-                      relativeAge(chats[i].updated) + '  ·  ' + chats[i].turns + ' turns',
+                      relativeAge(chats[i].updated) + '  ·  ' + count +
+                        (count === 1 ? ' turn' : ' turns'),
                       ACT_OPEN_CHAT, chats[i].index,
                       chats[i].active ? ROW_FLAG_CURRENT : 0));
   }

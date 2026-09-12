@@ -183,6 +183,9 @@ function handleWatchMessage(payload) {
 
   switch (req) {
     case WREQ_HELLO:
+      // The watch app just launched, so begin a new conversation rather than
+      // appending to whatever was open last time.
+      startFreshConversation();
       sendSettings(PEVT_READY);
       break;
     case WREQ_ASK:
@@ -355,6 +358,11 @@ function applyConfigResponse(raw) {
 
 Pebble.addEventListener('ready', function () {
   log('PebbleKit JS ready, version ' + APP_VERSION);
+  // The JS runtime starts with the watch app, so this is a launch too.  The
+  // watch also sends WREQ_HELLO, but that can be sent before this listener
+  // exists and be lost; startFreshConversation reuses an empty chat, so running
+  // it from both paths is harmless.
+  startFreshConversation();
   sendSettings(PEVT_READY);
   // Cached, so this is usually a no-op; it keeps the model menu honest when the
   // account gains or loses models between launches.

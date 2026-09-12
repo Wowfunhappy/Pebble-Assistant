@@ -83,16 +83,20 @@ static int16_t content_height(void) { return row_top(s_row_count); }
 
 // --- data ingest ------------------------------------------------------------
 
-void list_request(int32_t list_id) {
-  // A window's appear handler and an explicit request often land together;
-  // asking twice only doubles the Bluetooth traffic.
-  if (s_loading && s_incoming_list == list_id && elapsed_ms(s_load_t0) < 1500) return;
+static void send_list_request(int32_t list_id) {
   s_incoming_list = list_id;
   s_loading = true;
   s_load_t0 = s_phase;
   comm_send(WREQ_OPEN_LIST, NULL, list_id, 0);
   ensure_tick();
   mark_dirty();
+}
+
+void list_request(int32_t list_id) {
+  // A window's appear handler and an explicit request often land together;
+  // asking twice only doubles the Bluetooth traffic.
+  if (s_loading && s_incoming_list == list_id && elapsed_ms(s_load_t0) < 1500) return;
+  send_list_request(list_id);
 }
 
 void list_window_begin(int32_t list_id, int32_t count, const char *title) {
@@ -153,11 +157,17 @@ static void install_offline_rows(void) {
   s_hl = s_hl_to = row_top(1);
 }
 
-// The phone came up after the watch had already given up waiting.
+// The phone's JS has started.
+//
+// A request sent before it registered its appmessage listener is ACKed by the
+// transport and then dropped on the floor, so the watch sees a successful send
+// and waits forever for an answer that nobody heard it ask for.  This always
+// re-asks, deliberately bypassing the coalescing in list_request(): the pending
+// request is exactly the one that was lost.
 void list_phone_ready(void) {
   if (s_depth <= 0) return;
   int idx = s_depth - 1;
-  if (s_offline || s_loaded_list != s_list_ids[idx]) list_request(s_list_ids[idx]);
+  if (s_offline || s_loaded_list != s_list_ids[idx]) send_list_request(s_list_ids[idx]);
 }
 
 static void relayout(void) {

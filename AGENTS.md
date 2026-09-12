@@ -15,7 +15,9 @@ that will bite you.
 
 - `src/c/assistant.h` — the whole watch/phone protocol lives here.
 - `src/c/ui_reply.c` — conversation view, scrolling, turn transitions.
-- `src/c/ui_list.c` — every list (chats, settings, models, thinking).
+- `src/c/ui_list.c` — every list (chats, settings, models, thinking, chat options).
+- `src/c/toast.c` — the confirmation overlay. Shared because most toasts are
+  raised by an action that leaves you on a different screen than it started on.
 - `src/pkjs/parts/*.js` — phone side, concatenated by `wscript` in the order
   listed in `PKJS_PARTS`. Order matters; only `90_main.js` registers listeners.
 - `docs/index.html` — the hosted settings page.

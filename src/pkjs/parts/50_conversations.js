@@ -139,6 +139,24 @@ function appendTurn(question, answer) {
   return chat;
 }
 
+function deleteActiveChat() {
+  var store = chatStore();
+  var id = store.active_id;
+  var kept = [];
+  var removed = false;
+  for (var i = 0; i < store.chats.length; i++) {
+    if (store.chats[i].id === id) { removed = true; continue; }
+    kept.push(store.chats[i]);
+  }
+  store.chats = kept;
+  store.active_id = '';
+  saveChatStore(store);
+  _liveInput = null;
+  _liveChatId = '';
+  _liveSessionId = '';
+  return removed;
+}
+
 // Every launch of the watch app starts a clean conversation.  Picking up a
 // half-finished chat from yesterday is never what someone means when they raise
 // their wrist and start talking; the old chat is still one press away in the

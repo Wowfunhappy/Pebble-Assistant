@@ -17,7 +17,6 @@
 #define SLIDE_IN_MS    200
 #define BOUNCE_MS      230
 #define BOUNCE_PX      9
-#define TOAST_MS       1700
 #define TURN_TIMEOUT_MS 5000
 
 static Window *s_window;
@@ -57,9 +56,6 @@ static bool s_bouncing;
 static int8_t s_pending_dir;
 static bool s_awaiting_turn;
 static uint32_t s_await_t0;
-
-static char s_toast[48];
-static uint32_t s_toast_until;
 
 static void ensure_tick(void);
 static void recompute_layout(void);
@@ -260,19 +256,6 @@ static void draw_alert(GContext *ctx, GRect b) {
   theme_draw_header(ctx, b, "Reminder", NULL);
 }
 
-static void draw_toast(GContext *ctx, GRect b) {
-  if (s_toast_until <= s_phase || !s_toast[0]) return;
-  const Theme *t = theme();
-  int16_t h = 22;
-  GRect box = GRect(4, b.size.h - h - 4, b.size.w - 8, h);
-  graphics_context_set_fill_color(ctx, t->accent);
-  graphics_fill_rect(ctx, box, 4, GCornersAll);
-  graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, s_toast, theme_font_small(),
-                     GRect(box.origin.x + 4, box.origin.y + 1, box.size.w - 8, h),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-}
-
 static void canvas_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, theme()->background);
@@ -285,7 +268,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
     case REPLY_BUSY:
     default:          draw_busy(ctx, b);         break;
   }
-  draw_toast(ctx, b);
+  toast_draw(ctx, b);
 }
 
 // --- animation --------------------------------------------------------------
@@ -339,7 +322,7 @@ static void tick_cb(void *data) {
   }
 
   if (s_state == REPLY_BUSY || s_state == REPLY_ALERT) busy = true;
-  if (s_toast_until > s_phase) busy = true;
+  if (toast_active()) busy = true;
 
   if (s_canvas) layer_mark_dirty(s_canvas);
   if (busy && s_visible) s_tick = app_timer_register(TICK_MS, tick_cb, NULL);
@@ -485,14 +468,6 @@ void reply_window_return(void) {
   ensure_pushed();
 }
 
-void toast_show(const char *text) {
-  if (!text || !text[0]) return;
-  str_copy(s_toast, sizeof(s_toast), text);
-  s_toast_until = s_phase + (TOAST_MS / TICK_MS);
-  vibe_bump();
-  ensure_tick();
-}
-
 // --- buttons ----------------------------------------------------------------
 
 static void select_click(ClickRecognizerRef recognizer, void *context) {
@@ -508,9 +483,8 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void select_long(ClickRecognizerRef recognizer, void *context) {
-  comm_send(WREQ_NEW_CHAT, NULL, 0, 0);
-  memset(&s_turn, 0, sizeof(s_turn));
-  dictation_start();
+  if (s_state == REPLY_ALERT) return;   // the buttons belong to the reminder
+  list_open(LIST_CHAT_ACTIONS);
 }
 
 static void up_click(ClickRecognizerRef recognizer, void *context) {
@@ -603,4 +577,17 @@ void reply_window_deinit(void) {
 
 void reply_window_hide(void) {
   if (s_window && s_loaded) window_stack_remove(s_window, true);
+}
+
+// The conversation is gone, so there is nothing to come back to: drop the turn
+// as well as the window, or scrolling off the chats list would resurrect it.
+void reply_window_forget(void) {
+  memset(&s_turn, 0, sizeof(s_turn));
+  s_scroll = s_scroll_to = 0;
+  s_slide = 0;
+  s_scrolling = false;
+  s_sliding = false;
+  s_awaiting_turn = false;
+  s_state = REPLY_BUSY;
+  reply_window_hide();
 }

@@ -16,12 +16,14 @@ var WREQ_HELLO = 1, WREQ_ASK = 2, WREQ_CANCEL = 3, WREQ_NEW_CHAT = 4,
 var PEVT_READY = 1, PEVT_STATUS = 2, PEVT_TURN_BEGIN = 3, PEVT_Q_CHUNK = 4,
     PEVT_A_CHUNK = 5, PEVT_TURN_END = 6, PEVT_LIST_BEGIN = 7, PEVT_LIST_ITEM = 8,
     PEVT_LIST_END = 9, PEVT_ERROR = 10, PEVT_WAKEUP_SET = 11, PEVT_WAKEUP_CLR = 12,
-    PEVT_SETTINGS = 13, PEVT_TOAST = 14;
+    PEVT_SETTINGS = 13, PEVT_TOAST = 14, PEVT_DISMISS = 15;
 
-var LIST_CHATS = 1, LIST_SETTINGS = 2, LIST_MODELS = 3, LIST_EFFORT = 4;
+var LIST_CHATS = 1, LIST_SETTINGS = 2, LIST_MODELS = 3, LIST_EFFORT = 4,
+    LIST_CHAT_ACTIONS = 5;
 
 var ACT_NONE = 0, ACT_OPEN_CHAT = 1, ACT_SET_MODEL = 2, ACT_SET_EFFORT = 3,
-    ACT_TOGGLE = 4, ACT_SUBMENU = 5, ACT_NEW_CHAT = 6, ACT_CLOSE = 8;
+    ACT_TOGGLE = 4, ACT_SUBMENU = 5, ACT_NEW_CHAT = 6, ACT_CLOSE = 8,
+    ACT_DELETE_CHAT = 9;
 
 var ROW_FLAG_CURRENT = 1, ROW_FLAG_ON = 2, ROW_FLAG_OFF = 4,
     ROW_FLAG_CHEVRON = 8, ROW_FLAG_ACCENT = 16;
@@ -250,12 +252,21 @@ function sendEffortList() {
   sendList(LIST_EFFORT, 'Thinking', rows, selected);
 }
 
+// Long-pressing SELECT inside a conversation.  One entry for now; the list
+// exists so there is somewhere for the next one to go.
+function sendChatActionsList() {
+  var chat = activeChat();
+  var rows = [makeRow('Delete chat', chat ? chat.title : '', ACT_DELETE_CHAT, 0, 0)];
+  sendList(LIST_CHAT_ACTIONS, 'Options', rows, 0);
+}
+
 function sendListById(listId) {
   switch (listId) {
     case LIST_CHATS:    sendChatsList(); break;
     case LIST_SETTINGS: sendSettingsList(); break;
     case LIST_MODELS:   sendModelsList(); break;
     case LIST_EFFORT:   sendEffortList(); break;
+    case LIST_CHAT_ACTIONS: sendChatActionsList(); break;
     default: break;
   }
 }

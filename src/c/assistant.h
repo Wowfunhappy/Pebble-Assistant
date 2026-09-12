@@ -39,12 +39,14 @@
 #define PEVT_WAKEUP_CLR   12   // PINT = cookie, -1 clears every slot
 #define PEVT_SETTINGS     13   // same shape as PEVT_READY
 #define PEVT_TOAST        14   // PSTR = short confirmation banner
+#define PEVT_DISMISS      15   // forget the shown turn and fall back to the chats list
 
 // List identifiers.
 #define LIST_CHATS         1   // root list: New Chat, Settings, then history
 #define LIST_SETTINGS      2
 #define LIST_MODELS        3
 #define LIST_EFFORT        4
+#define LIST_CHAT_ACTIONS  5   // long-press SELECT inside a conversation
 
 // Row actions the phone can attach to a list item.
 #define ACT_NONE           0
@@ -55,6 +57,7 @@
 #define ACT_SUBMENU        5   // arg = list id
 #define ACT_NEW_CHAT       6   // dismiss the list and start dictation
 #define ACT_CLOSE          8   // dismiss the list
+#define ACT_DELETE_CHAT    9   // delete the conversation being shown
 
 // Row flags.
 #define ROW_FLAG_CURRENT   (1 << 0)   // draw the "active value" dot
@@ -174,6 +177,7 @@ void reply_window_set_alert(const char *title, int32_t cookie);
 void reply_window_show_turn(const Turn *turn);
 void reply_window_return(void);   // re-show existing content from the chats list
 void reply_window_hide(void);     // drop back to the chats list
+void reply_window_forget(void);   // discard the shown turn, then hide
 
 void list_window_init(void);
 void list_window_deinit(void);
@@ -183,6 +187,7 @@ void list_window_add(int32_t row, const ListRow *item);
 void list_window_end(int32_t list_id, int32_t selected);
 void list_request(int32_t list_id);
 void list_pop_submenus(void);     // leave only the root chats list on the stack
+void list_open(int32_t list_id);  // push a list on top of whatever is in front
 void list_phone_ready(void);      // the phone connected; retry anything that timed out
 
 void dictation_start(void);
@@ -190,6 +195,8 @@ bool dictation_active(void);
 void dictation_cleanup(void);
 
 void toast_show(const char *text);
+bool toast_active(void);
+void toast_draw(GContext *ctx, GRect bounds);
 
 // ---------------------------------------------------------------------------
 // Reminders (timers.c)

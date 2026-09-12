@@ -311,6 +311,11 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
       if (pstr) toast_show(pstr->value->cstring);
       break;
 
+    case PEVT_DISMISS:
+      list_pop_submenus();
+      reply_window_forget();
+      break;
+
     case PEVT_WAKEUP_SET:
       if (pint) {
         timers_set((time_t)pint->value->int32,

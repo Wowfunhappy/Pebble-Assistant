@@ -139,6 +139,20 @@ function handleListAction(action, arg) {
       }
       break;
     }
+    case ACT_DELETE_CHAT: {
+      // An active chat with no turns is a blank slate, not a conversation, so
+      // say so rather than claiming to have deleted something invisible.
+      var doomed = activeChat();
+      var hadContent = !!(doomed && doomed.turns.length);
+      deleteActiveChat();
+      startFreshConversation();
+      sendToast(hadContent ? 'Chat deleted' : 'Nothing to delete');
+      sendSettings(PEVT_SETTINGS);
+      // Tear down the options list and the conversation behind it; the chats
+      // list is underneath and refreshes itself when it reappears.
+      sendToWatch({ PEVT: PEVT_DISMISS });
+      break;
+    }
     case ACT_TOGGLE:
       handleToggle(arg);
       break;

@@ -282,6 +282,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   }
 
   theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL);
+  toast_draw(ctx, b);
 }
 
 // --- animation --------------------------------------------------------------
@@ -312,6 +313,7 @@ static void tick_cb(void *data) {
     else { s_bounce = 0; s_bouncing = false; }
     busy = busy || s_bouncing;
   }
+  if (toast_active()) busy = true;
   if (s_loading) {
     if (elapsed_ms(s_load_t0) > LOAD_TIMEOUT_MS) {
       s_loading = false;
@@ -395,7 +397,7 @@ static void edge_exit(int8_t dir) {
   pop_current();
 }
 
-static void push_list(int32_t list_id) {
+void list_open(int32_t list_id) {
   if (s_depth >= LIST_DEPTH) { toast_show("Too deep"); return; }
   int target = s_depth;
   s_list_ids[target] = list_id;
@@ -437,7 +439,7 @@ static void activate(void) {
       break;
 
     case ACT_SUBMENU:
-      push_list(row->arg);
+      list_open(row->arg);
       break;
 
     case ACT_CLOSE:
@@ -448,6 +450,13 @@ static void activate(void) {
       // The phone replies with a turn, which pops back to the reply view.
       comm_send(WREQ_LIST_ACTION, NULL, ACT_OPEN_CHAT, row->arg);
       reply_window_set_status("Opening...", SPIN_THINKING);
+      break;
+
+    case ACT_DELETE_CHAT:
+      // The phone deletes it and answers with PEVT_DISMISS, which tears down
+      // both this list and the conversation behind it.
+      comm_send(WREQ_LIST_ACTION, NULL, ACT_DELETE_CHAT, row->arg);
+      vibe_soft();
       break;
 
     case ACT_SET_MODEL:

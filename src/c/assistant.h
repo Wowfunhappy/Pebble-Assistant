@@ -45,7 +45,6 @@
 #define LIST_SETTINGS      2
 #define LIST_MODELS        3
 #define LIST_EFFORT        4
-#define LIST_QUICK         5
 
 // Row actions the phone can attach to a list item.
 #define ACT_NONE           0
@@ -55,7 +54,6 @@
 #define ACT_TOGGLE         4   // arg = toggle id
 #define ACT_SUBMENU        5   // arg = list id
 #define ACT_NEW_CHAT       6   // dismiss the list and start dictation
-#define ACT_QUICK          7   // arg = quick prompt index
 #define ACT_CLOSE          8   // dismiss the list
 
 // Row flags.

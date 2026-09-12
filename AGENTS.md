@@ -15,7 +15,7 @@ that will bite you.
 
 - `src/c/assistant.h` — the whole watch/phone protocol lives here.
 - `src/c/ui_reply.c` — conversation view, scrolling, turn transitions.
-- `src/c/ui_list.c` — every list (chats, settings, models, thinking, quick prompts).
+- `src/c/ui_list.c` — every list (chats, settings, models, thinking).
 - `src/pkjs/parts/*.js` — phone side, concatenated by `wscript` in the order
   listed in `PKJS_PARTS`. Order matters; only `90_main.js` registers listeners.
 - `docs/index.html` — the hosted settings page.
@@ -36,6 +36,10 @@ that will bite you.
   between releases; ES5 has never broken.
 - **The watch renders, the phone decides.** Menus arrive as `PEVT_LIST_*`
   messages with an action code per row. Resist adding menu logic to C.
+- **Keep the watch menu to what was asked for.** It is Model, Thinking, Web
+  search, Location, Confirm speech and Listen on open -- nothing else. Anything
+  that is set once and forgotten (text size, credentials, places) belongs on the
+  phone, where there is a keyboard and a screen to read it on.
 - **Only advertise tools whose service is configured** (`buildToolDefinitions`).
   A model told it has a calendar will claim to have checked one.
 - Static buffers on the watch are sized for the 24 KB platforms. `MAX_ANSWER_LEN`
@@ -148,8 +152,8 @@ What to expect on the emulator, so you do not chase ghosts:
   (`SystemAborted`) after ~8 s. The app retries once and then lands on the chats
   list. Allow ~20 s after install before driving the UI.
 - `pebble send-app-message` does not deliver in this build. To exercise the
-  reply view, drive it through PKJS instead (a quick prompt is the shortest
-  path) rather than injecting `PEVT_*` messages by hand.
+  reply view, temporarily stub `askModel` in `90_main.js` to deliver a canned
+  turn and revert it afterwards, rather than injecting `PEVT_*` by hand.
 
 ### Without the SDK
 

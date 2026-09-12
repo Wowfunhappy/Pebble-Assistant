@@ -33,12 +33,6 @@ var FALLBACK_EFFORTS = [
   { effort: 'high', description: 'Greater reasoning depth' }
 ];
 
-var DEFAULT_QUICK_PROMPTS = [
-  "What's next on my calendar?",
-  'What are my reminders for today?',
-  'Summarize my day'
-];
-
 var DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant.';
 
 function defaultSettings() {
@@ -84,7 +78,6 @@ function defaultSettings() {
     gmail_refresh_token: '',
     notes_label: 'Notes',
 
-    quick_prompts: DEFAULT_QUICK_PROMPTS.slice(),
     timeline_pins: true
   };
 }

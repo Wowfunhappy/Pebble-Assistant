@@ -18,10 +18,10 @@ var PEVT_READY = 1, PEVT_STATUS = 2, PEVT_TURN_BEGIN = 3, PEVT_Q_CHUNK = 4,
     PEVT_LIST_END = 9, PEVT_ERROR = 10, PEVT_WAKEUP_SET = 11, PEVT_WAKEUP_CLR = 12,
     PEVT_SETTINGS = 13, PEVT_TOAST = 14;
 
-var LIST_CHATS = 1, LIST_SETTINGS = 2, LIST_MODELS = 3, LIST_EFFORT = 4, LIST_QUICK = 5;
+var LIST_CHATS = 1, LIST_SETTINGS = 2, LIST_MODELS = 3, LIST_EFFORT = 4;
 
 var ACT_NONE = 0, ACT_OPEN_CHAT = 1, ACT_SET_MODEL = 2, ACT_SET_EFFORT = 3,
-    ACT_TOGGLE = 4, ACT_SUBMENU = 5, ACT_NEW_CHAT = 6, ACT_QUICK = 7, ACT_CLOSE = 8;
+    ACT_TOGGLE = 4, ACT_SUBMENU = 5, ACT_NEW_CHAT = 6, ACT_CLOSE = 8;
 
 var ROW_FLAG_CURRENT = 1, ROW_FLAG_ON = 2, ROW_FLAG_OFF = 4,
     ROW_FLAG_CHEVRON = 8, ROW_FLAG_ACCENT = 16;
@@ -210,11 +210,6 @@ function sendSettingsList() {
     makeRow('Confirm speech', '', ACT_TOGGLE, 3, s.confirm_dictation ? ROW_FLAG_ON : ROW_FLAG_OFF),
     makeRow('Listen on open', '', ACT_TOGGLE, 4, s.auto_dictation ? ROW_FLAG_ON : ROW_FLAG_OFF)
   ];
-  if ((s.quick_prompts || []).length) {
-    rows.splice(2, 0, makeRow('Quick prompts', '', ACT_SUBMENU, LIST_QUICK, ROW_FLAG_CHEVRON));
-  }
-  rows.push(makeRow('Text size', ['Normal', 'Large', 'Extra large'][clamp(s.font_scale || 0, 0, 2)],
-                    ACT_TOGGLE, 5, 0));
   sendList(LIST_SETTINGS, 'Settings', rows, 0);
 }
 
@@ -253,23 +248,12 @@ function sendEffortList() {
   sendList(LIST_EFFORT, 'Thinking', rows, selected);
 }
 
-function sendQuickList() {
-  var prompts = settings().quick_prompts || [];
-  var rows = [];
-  for (var i = 0; i < prompts.length; i++) {
-    rows.push(makeRow(prompts[i], '', ACT_QUICK, i, 0));
-  }
-  if (!rows.length) rows.push(makeRow('None yet', 'Add them in phone settings', ACT_NONE, 0, 0));
-  sendList(LIST_QUICK, 'Quick prompts', rows, 0);
-}
-
 function sendListById(listId) {
   switch (listId) {
     case LIST_CHATS:    sendChatsList(); break;
     case LIST_SETTINGS: sendSettingsList(); break;
     case LIST_MODELS:   sendModelsList(); break;
     case LIST_EFFORT:   sendEffortList(); break;
-    case LIST_QUICK:    sendQuickList(); break;
     default: break;
   }
 }

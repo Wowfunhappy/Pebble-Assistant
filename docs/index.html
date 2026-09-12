@@ -272,18 +272,6 @@
   </details>
 
   <details class="card">
-    <summary>Quick prompts <span class="chev" id="quickCount"></span></summary>
-    <div class="body">
-      <p class="note">Shown on the watch under Settings, for when you would rather not talk.</p>
-      <div id="quickList"></div>
-      <div class="inline">
-        <input type="text" id="newQuick" placeholder="What&rsquo;s next on my calendar?">
-        <button class="btn" id="addQuick" type="button">Add</button>
-      </div>
-    </div>
-  </details>
-
-  <details class="card">
     <summary>Diagnostics <span class="chev" id="diagWhen"></span></summary>
     <div class="body">
       <p class="note">These checks run on your phone right after each save, because the browser cannot
@@ -328,7 +316,6 @@
   var catalog = (payload.catalog || []).slice();
   var hidden = (S.hidden_models || []).slice();
   var places = (S.places || []).slice();
-  var quick = (S.quick_prompts || []).slice();
 
   function isHidden(slug) {
     for (var i = 0; i < hidden.length; i++) if (hidden[i] === slug) return true;
@@ -578,36 +565,6 @@
   });
   renderPlaces();
 
-  // --- quick prompts --------------------------------------------------------
-  function renderQuick() {
-    var host = $('quickList');
-    host.innerHTML = '';
-    quick.forEach(function (text, index) {
-      var row = document.createElement('div');
-      row.className = 'listrow';
-      var label = document.createElement('div');
-      label.className = 'grow';
-      label.textContent = text;
-      var del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'x';
-      del.innerHTML = '&times;';
-      del.addEventListener('click', function () { quick.splice(index, 1); renderQuick(); });
-      row.appendChild(label);
-      row.appendChild(del);
-      host.appendChild(row);
-    });
-    $('quickCount').textContent = quick.length ? (quick.length + ' saved') : 'none';
-  }
-  $('addQuick').addEventListener('click', function () {
-    var text = $('newQuick').value.replace(/^\s+|\s+$/g, '');
-    if (!text) return;
-    quick.push(text);
-    $('newQuick').value = '';
-    renderQuick();
-  });
-  renderQuick();
-
   // --- diagnostics ----------------------------------------------------------
   (function () {
     var report = payload.diagnostics;
@@ -701,7 +658,6 @@
     next.font_scale = parseInt($('font_scale').value, 10) || 0;
     next.reply_char_limit = Math.max(200, Math.min(4000, parseInt($('reply_char_limit').value, 10) || 1500));
     next.places = places;
-    next.quick_prompts = quick;
     next.hidden_models = hidden;
     next.default_model = effectiveDefault();
 

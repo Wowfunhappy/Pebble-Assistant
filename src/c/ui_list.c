@@ -5,8 +5,7 @@
 //
 // The chats list is the app's root window: [Settings] [New Chat] [past chats...]
 // with "New Chat" preselected, so cancelling dictation lands you one button away
-// from trying again.  Submenus (Settings -> Model / Thinking / Quick prompts)
-// stack on top of it.
+// from trying again.  Submenus (Settings -> Model / Thinking) stack on top of it.
 //
 // Only the front list's rows are held in memory; going back re-requests the
 // parent from the phone, which doubles as a cheap way to keep displayed values
@@ -453,13 +452,6 @@ static void activate(void) {
       vibe_bump();
       // The phone echoes the refreshed list, so the row redraws with its new state.
       list_request(s_list_ids[s_depth - 1]);
-      break;
-
-    case ACT_QUICK:
-      comm_send(WREQ_LIST_ACTION, NULL, ACT_QUICK, row->arg);
-      list_pop_submenus();
-      reply_window_set_question(row->label);
-      reply_window_set_status("Thinking", SPIN_THINKING);
       break;
 
     default:

@@ -105,7 +105,6 @@ function handleToggle(id) {
     case 2: updateSettings({ location_enabled: !s.location_enabled }); break;
     case 3: updateSettings({ confirm_dictation: !s.confirm_dictation }); break;
     case 4: updateSettings({ auto_dictation: !s.auto_dictation }); break;
-    case 5: updateSettings({ font_scale: ((s.font_scale || 0) + 1) % 3 }); break;
     default: break;
   }
   sendSettings(PEVT_SETTINGS);
@@ -143,11 +142,6 @@ function handleListAction(action, arg) {
     case ACT_TOGGLE:
       handleToggle(arg);
       break;
-    case ACT_QUICK: {
-      var prompts = settings().quick_prompts || [];
-      if (arg >= 0 && arg < prompts.length) askModel(prompts[arg]);
-      break;
-    }
     default:
       break;
   }

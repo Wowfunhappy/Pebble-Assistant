@@ -250,10 +250,10 @@ function handleWatchMessage(payload) {
 // of the trace is confirming that the settings the page saved are the settings
 // this side is using.
 function describeAccount(account) {
-  var known = caldavCachedCollection(account);
+  var known = caldavCachedCollection(account) || caldavPinned(account);
   return account.url + ' as "' + account.user + '"' +
          (account.pass ? '' : ' (NO PASSWORD SAVED)') +
-         (known ? ', collection ' + known : ', discovering');
+         (known ? ', from ' + known : ', discovering');
 }
 
 function runDiagnostics(onDone) {

@@ -216,8 +216,11 @@
         <input type="text" id="cal_user" spellcheck="false" autocapitalize="off" autocorrect="off"></label>
       <label class="field"><span>Password</span>
         <input type="password" id="cal_pass" autocapitalize="off" autocorrect="off"></label>
-      <label class="field"><span>Calendar URL (optional &mdash; skips discovery)</span>
-        <input type="text" id="cal_collection" spellcheck="false" autocapitalize="off"></label>
+      <label class="field"><span>Start looking here (optional)</span>
+        <input type="text" id="cal_collection" spellcheck="false" autocapitalize="off"
+               placeholder="/dav/calendars/me/home/"></label>
+      <p class="note">A full address or a path. Point it at one calendar to use exactly that one, or at a
+        folder to search from there instead of from the server root.</p>
     </div>
   </details>
 
@@ -231,8 +234,11 @@
         <input type="text" id="rem_user" spellcheck="false" autocapitalize="off" autocorrect="off"></label>
       <label class="field"><span>Password</span>
         <input type="password" id="rem_pass" autocapitalize="off" autocorrect="off"></label>
-      <label class="field"><span>List URL (optional &mdash; skips discovery)</span>
-        <input type="text" id="rem_collection" spellcheck="false" autocapitalize="off"></label>
+      <label class="field"><span>Start looking here (optional)</span>
+        <input type="text" id="rem_collection" spellcheck="false" autocapitalize="off"
+               placeholder="/dav.php/calendars/me/tasks/"></label>
+      <p class="note">A full address or a path. Point it at one list to use exactly that one, or at a
+        folder to search from there instead of from the server root.</p>
     </div>
   </details>
 
@@ -281,8 +287,8 @@
     <div class="body">
       <p class="note">These checks run on your phone right after each save, because the browser cannot
         reach your servers directly. Save once, reopen this page, and the results appear here.</p>
-      <p class="note">If a CalDAV check fails at discovery, pasting the collection's full URL into the
-        Calendar&nbsp;URL or Reminders&nbsp;URL box skips discovery entirely.</p>
+      <p class="note">If a CalDAV check fails while searching for the right list, put the address of the
+        list itself in that account's &ldquo;start looking here&rdquo; box.</p>
       <div class="diag" id="diagList"></div>
       <div id="traceWrap" style="display:none">
         <p class="note" style="margin-top:14px">Every request the phone made, in order. If something here

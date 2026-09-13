@@ -18,8 +18,14 @@ var APPLE_PROXIMITY_TRIGGER = '19760401T005545Z';
 
 // --- tiny XML helpers (no DOMParser in PebbleKit JS) ------------------------
 
+// A prefix is anything up to the last colon before the tag name.  iCloud has
+// been seen writing the namespace URI itself as the prefix -- literally
+// <http://calendarserver.org/ns/:getctag> -- so slashes and dots have to be
+// allowed here, not just the usual short alias.
+var XML_PREFIX = '(?:[^\\s<>]*:)?';
+
 function xmlTagPattern(tag, flags) {
-  return new RegExp('<(?:[A-Za-z0-9_-]+:)?' + tag + '(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:[A-Za-z0-9_-]+:)?' + tag + '>', flags || '');
+  return new RegExp('<' + XML_PREFIX + tag + '(?:\\s[^>]*)?>([\\s\\S]*?)<\\/' + XML_PREFIX + tag + '>', flags || '');
 }
 
 function xmlFindAll(xml, tag) {
@@ -36,7 +42,7 @@ function xmlFindFirst(xml, tag) {
 }
 
 function xmlHasTag(xml, tag) {
-  return new RegExp('<(?:[A-Za-z0-9_-]+:)?' + tag + '(?:[\\s/][^>]*)?/?>').test(xml);
+  return new RegExp('<' + XML_PREFIX + tag + '(?:[\\s/][^>]*)?/?>').test(xml);
 }
 
 function xmlUnescape(text) {
@@ -223,6 +229,10 @@ function landingFor(url) {
 // Every CalDAV request goes through here so authentication is handled in exactly
 // one place.  Returns the raw response; status interpretation is the caller's.
 function davSend(account, method, url, body, extraHeaders, onDone, isRetry, hops) {
+  if (!/^https?:\/\//i.test(url || '')) {
+    onDone(new Error('"' + url + '" is not a full address -- it needs to start with https://'), null);
+    return;
+  }
   var headers = caldavHeaders(account, extraHeaders);
   var host = urlOrigin(url) || account.kind;
   var challenge = _digestChallenges[host];
@@ -311,21 +321,30 @@ function caldavRequest(account, method, url, body, extraHeaders, onDone) {
   });
 }
 
-// --- discovery --------------------------------------------------------------
+// --- collections ------------------------------------------------------------
 
 function caldavCache() { return storeGet(CALDAV_CACHE_KEY, {}); }
 
+// A collection pinned in Settings is allowed to be a path -- that is how a
+// server address is usually written down -- so join it to the account URL rather
+// than handing XMLHttpRequest something it cannot open.
+function caldavPinned(account) {
+  if (!account.collection) return '';
+  return resolveHref(account.url || '', account.collection);
+}
+
 function caldavCachedCollection(account) {
-  if (account.collection) return account.collection;
   var cache = caldavCache();
   var entry = cache[account.kind];
-  if (entry && entry.url === account.url && entry.user === account.user) return entry.collection;
+  if (entry && entry.url === account.url && entry.user === account.user &&
+      entry.pinned === (account.collection || '')) return entry.collection;
   return '';
 }
 
 function caldavRememberCollection(account, collection) {
   var cache = caldavCache();
-  cache[account.kind] = { url: account.url, user: account.user, collection: collection };
+  cache[account.kind] = { url: account.url, user: account.user,
+                          pinned: account.collection || '', collection: collection };
   storeSet(CALDAV_CACHE_KEY, cache);
 }
 
@@ -333,24 +352,85 @@ function propfind(account, url, depth, body, onDone) {
   caldavRequest(account, 'PROPFIND', url, body, { 'Depth': String(depth) }, onDone);
 }
 
-// current-user-principal -> calendar-home-set -> the first collection that holds
-// the component we want.  Each step is skipped when the answer is already known.
-function caldavDiscover(account, onDone) {
-  var known = caldavCachedCollection(account);
-  if (known) { onDone(null, known); return; }
-  if (!account.url || !account.user || !account.pass) {
-    onDone(new Error('CalDAV is not configured'), null);
-    return;
+// --- discovery --------------------------------------------------------------
+
+var COLLECTION_PROPS = '<?xml version="1.0" encoding="utf-8"?>' +
+    '<d:propfind ' + DAV_NS + '><d:prop>' +
+    '<d:resourcetype/><d:displayname/><c:supported-calendar-component-set/>' +
+    '</d:prop></d:propfind>';
+
+function componentNames(supported) {
+  var names = [];
+  var pattern = /name="([A-Za-z]+)"/gi;
+  var found;
+  while ((found = pattern.exec(supported)) !== null) names.push(found[1].toUpperCase());
+  return names;
+}
+
+// Which of the collections in a multistatus holds what this account wants.  The
+// verdict on every candidate goes into the trace, because "no calendar found"
+// on its own cannot distinguish a server that listed nothing from one whose
+// listing we failed to parse from one that simply has no matching list.
+function pickCollection(account, baseUrl, body, depth) {
+  var responses = xmlFindAll(body || '', 'response');
+  var wants = new RegExp('name="' + account.component + '"', 'i');
+  var chosen = '';
+  var fallback = '';
+  var seen = [];
+
+  for (var i = 0; i < responses.length; i++) {
+    var block = responses[i];
+    var href = xmlFindFirst(block, 'href');
+    var isCalendar = xmlHasTag(block, 'calendar');
+    var supported = xmlFindFirst(block, 'supported-calendar-component-set') || '';
+    var names = componentNames(supported);
+
+    if (seen.length < 10) {
+      seen.push((href ? xmlUnescape(href) : '(no href)') +
+                (isCalendar ? '' : ' not-a-calendar') +
+                (names.length ? ' ' + names.join('+') : ' no-component-list'));
+    }
+    if (!isCalendar || !href) continue;
+    var url = resolveHref(baseUrl, href);
+    // RFC 4791: a calendar collection that does not publish the property
+    // supports every component, so it is a legitimate last resort.
+    if (wants.test(supported)) { chosen = url; break; }
+    if (!supported && !fallback) fallback = url;
   }
 
+  traceNote('depth ' + depth + ' listed ' + responses.length + ' item(s) in ' +
+            (body || '').length + ' bytes' + (seen.length ? ': ' + seen.join(' | ') : '') +
+            (responses.length > seen.length ? ' ...' : ''));
+  return chosen || fallback;
+}
+
+function caldavProbe(account, url, depth, onDone) {
+  propfind(account, url, depth, COLLECTION_PROPS, function (err, res) {
+    if (err) { onDone(err, ''); return; }
+    var found = pickCollection(account, effectiveUrl(res, url), res.body, depth);
+    // A Depth:1 listing that contains only the folder itself is the signature of
+    // the Depth header never arriving.  Depth has no equivalent outside the
+    // header, so if that is what happened there is nothing to fall back to --
+    // but it is worth saying plainly rather than reporting an empty server.
+    if (depth === 1 && !found && xmlFindAll(res.body || '', 'response').length <= 1) {
+      traceNote('only the folder itself came back -- the Depth header did not get through');
+    }
+    onDone(null, found);
+  });
+}
+
+// current-user-principal -> calendar-home-set -> the collection holding the
+// component we want.
+function caldavDiscoverFrom(account, startUrl, onDone) {
   var principalBody = '<?xml version="1.0" encoding="utf-8"?>' +
       '<d:propfind ' + DAV_NS + '><d:prop><d:current-user-principal/></d:prop></d:propfind>';
 
-  propfind(account, account.url, 0, principalBody, function (err, res) {
+  propfind(account, startUrl, 0, principalBody, function (err, res) {
     if (err) { onDone(err, null); return; }
     var principalBlock = xmlFindFirst(res.body, 'current-user-principal');
     var principalHref = principalBlock ? xmlFindFirst(principalBlock, 'href') : null;
-    var bootstrapUrl = effectiveUrl(res, account.url);
+    var bootstrapUrl = effectiveUrl(res, startUrl);
+    if (!principalHref) traceNote('no current-user-principal in ' + res.body.length + ' bytes');
     var principalUrl = principalHref ? resolveHref(bootstrapUrl, principalHref) : bootstrapUrl;
 
     var homeBody = '<?xml version="1.0" encoding="utf-8"?>' +
@@ -366,38 +446,37 @@ function caldavDiscover(account, onDone) {
       }
       var homeUrl = resolveHref(effectiveUrl(res2, principalUrl), homeHref);
 
-      var listBody = '<?xml version="1.0" encoding="utf-8"?>' +
-          '<d:propfind ' + DAV_NS + '><d:prop>' +
-          '<d:resourcetype/><d:displayname/><c:supported-calendar-component-set/>' +
-          '</d:prop></d:propfind>';
-
-      propfind(account, homeUrl, 1, listBody, function (err3, res3) {
+      caldavProbe(account, homeUrl, 1, function (err3, found) {
         if (err3) { onDone(err3, null); return; }
-        var responses = xmlFindAll(res3.body, 'response');
-        var fallback = '';
-        for (var i = 0; i < responses.length; i++) {
-          var block = responses[i];
-          if (!xmlHasTag(block, 'calendar')) continue;        // not a calendar collection
-          var href = xmlFindFirst(block, 'href');
-          if (!href) continue;
-          var collectionUrl = resolveHref(effectiveUrl(res3, homeUrl), href);
-          var supported = xmlFindFirst(block, 'supported-calendar-component-set') || '';
-          var wants = new RegExp('name="' + account.component + '"', 'i');
-          if (wants.test(supported)) {
-            caldavRememberCollection(account, collectionUrl);
-            onDone(null, collectionUrl);
-            return;
-          }
-          if (!supported && !fallback) fallback = collectionUrl;
-        }
-        if (fallback) {
-          caldavRememberCollection(account, fallback);
-          onDone(null, fallback);
-          return;
-        }
+        if (found) { caldavRememberCollection(account, found); onDone(null, found); return; }
         onDone(new Error('No ' + (account.component === 'VTODO' ? 'reminder' : 'calendar') +
                          ' list found on that server'), null);
       });
+    });
+  });
+}
+
+function caldavDiscover(account, onDone) {
+  var known = caldavCachedCollection(account);
+  if (known) { onDone(null, known); return; }
+  if (!account.url || !account.user || !account.pass) {
+    onDone(new Error('CalDAV is not configured'), null);
+    return;
+  }
+
+  var pinned = caldavPinned(account);
+  if (!pinned) { caldavDiscoverFrom(account, account.url, onDone); return; }
+
+  // A pinned address is treated as "start here" rather than "this is the list",
+  // because the useful thing to write down is usually the server path, and being
+  // told "no calendar found" for an address that is merely one level too high
+  // is a miserable way to spend an evening.
+  traceNote('pinned collection: ' + pinned);
+  caldavProbe(account, pinned, 0, function (err, direct) {
+    if (!err && direct) { caldavRememberCollection(account, direct); onDone(null, direct); return; }
+    caldavProbe(account, pinned, 1, function (err2, child) {
+      if (!err2 && child) { caldavRememberCollection(account, child); onDone(null, child); return; }
+      caldavDiscoverFrom(account, pinned, onDone);
     });
   });
 }

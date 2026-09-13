@@ -210,9 +210,10 @@ to send the verb, dropped a header, or moved the request to another host. Tap
 **Copy this log** to paste it somewhere. A first `401` on a CalDAV server is
 normal: that is the Digest handshake, and the next line should be a `200`.
 
-If a CalDAV check fails while discovering the collection, paste the collection's
-own URL into the Calendar URL or Reminders URL box; discovery is then skipped
-entirely.
+If a CalDAV check fails while searching for the right list, use that account's
+**Start looking here** box. It takes a full address or just a path, joined to the
+server URL. Point it at one calendar to use exactly that one, or at a folder to
+search downwards from there instead of from the server root.
 
 ## Known limitations
 

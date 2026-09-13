@@ -359,12 +359,20 @@ var COLLECTION_PROPS = '<?xml version="1.0" encoding="utf-8"?>' +
     '<d:resourcetype/><d:displayname/><c:supported-calendar-component-set/>' +
     '</d:prop></d:propfind>';
 
+// XML says an attribute may be quoted either way, and servers take that at their
+// word, so a pattern that insists on double quotes will read a perfectly normal
+// calendar as declaring no components at all.
 function componentNames(supported) {
   var names = [];
-  var pattern = /name="([A-Za-z]+)"/gi;
+  var pattern = /name\s*=\s*["']([A-Za-z]+)["']/gi;
   var found;
   while ((found = pattern.exec(supported)) !== null) names.push(found[1].toUpperCase());
   return names;
+}
+
+function listHas(list, value) {
+  for (var i = 0; i < list.length; i++) if (list[i] === value) return true;
+  return false;
 }
 
 // Which of the collections in a multistatus holds what this account wants.  The
@@ -373,10 +381,10 @@ function componentNames(supported) {
 // listing we failed to parse from one that simply has no matching list.
 function pickCollection(account, baseUrl, body, depth) {
   var responses = xmlFindAll(body || '', 'response');
-  var wants = new RegExp('name="' + account.component + '"', 'i');
   var chosen = '';
   var fallback = '';
   var seen = [];
+  var puzzling = '';
 
   for (var i = 0; i < responses.length; i++) {
     var block = responses[i];
@@ -384,23 +392,32 @@ function pickCollection(account, baseUrl, body, depth) {
     var isCalendar = xmlHasTag(block, 'calendar');
     var supported = xmlFindFirst(block, 'supported-calendar-component-set') || '';
     var names = componentNames(supported);
+    var label = xmlUnescape(xmlFindFirst(block, 'displayname') || '');
 
+    // A property that is present but yields no component names is worth showing
+    // verbatim: it means this side cannot read what the server plainly sent.
+    if (isCalendar && !names.length && supported.replace(/\s+/g, '') && !puzzling) {
+      puzzling = supported.replace(/\s+/g, ' ').substring(0, 80);
+    }
     if (seen.length < 10) {
       seen.push((href ? xmlUnescape(href) : '(no href)') +
+                (label ? ' "' + label + '"' : '') +
                 (isCalendar ? '' : ' not-a-calendar') +
                 (names.length ? ' ' + names.join('+') : ' no-component-list'));
     }
     if (!isCalendar || !href) continue;
     var url = resolveHref(baseUrl, href);
-    // RFC 4791: a calendar collection that does not publish the property
-    // supports every component, so it is a legitimate last resort.
-    if (wants.test(supported)) { chosen = url; break; }
-    if (!supported && !fallback) fallback = url;
+    if (listHas(names, account.component)) { chosen = url; break; }
+    // RFC 4791: a calendar collection that does not say which components it
+    // holds supports all of them.  Anything we could not read counts as not
+    // said -- refusing to choose is the one outcome that is certainly wrong.
+    if (!names.length && !fallback) fallback = url;
   }
 
   traceNote('depth ' + depth + ' listed ' + responses.length + ' item(s) in ' +
             (body || '').length + ' bytes' + (seen.length ? ': ' + seen.join(' | ') : '') +
             (responses.length > seen.length ? ' ...' : ''));
+  if (puzzling) traceNote('unreadable component list: ' + puzzling);
   return chosen || fallback;
 }
 

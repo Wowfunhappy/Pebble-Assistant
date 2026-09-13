@@ -208,11 +208,14 @@ function sendChatsList() {
   var chats = chatList();
   for (var i = 0; i < chats.length && rows.length < 20; i++) {
     var count = chats[i].turns;
+    // No marker for the active chat: getting back into it means selecting it,
+    // exactly like any other row, so pointing at it told the reader nothing they
+    // could act on.  The dot still means something in the model and thinking
+    // lists, where it marks the value in force.
     rows.push(makeRow(chats[i].title,
                       relativeAge(chats[i].updated) + '  ·  ' + count +
                         (count === 1 ? ' turn' : ' turns'),
-                      ACT_OPEN_CHAT, chats[i].index,
-                      chats[i].active ? ROW_FLAG_CURRENT : 0));
+                      ACT_OPEN_CHAT, chats[i].index, 0));
   }
   sendList(LIST_CHATS, 'Assistant', rows, 1);
 }

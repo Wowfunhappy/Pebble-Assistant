@@ -33,7 +33,7 @@ function makeTitle(question) {
   text = text.replace(/[?.!,]+$/, '');
   if (!text) return 'New chat';
   // The watch scrolls long titles, so a fuller one is more use than a short one.
-  return titleCaseFirst(trimText(text, 56));
+  return titleCaseFirst(trimText(text, 63));
 }
 
 function newChat() {

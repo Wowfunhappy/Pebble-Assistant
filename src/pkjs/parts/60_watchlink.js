@@ -37,6 +37,11 @@ var SPIN_NONE = 0, SPIN_THINKING = 1, SPIN_SEARCHING = 2, SPIN_TOOL = 3;
 // terminating NUL.
 var WATCH_ANSWER_BYTES = 2000;
 var WATCH_QUESTION_BYTES = 560;
+// Matches MAX_TITLE_LEN / MAX_ROW_LABEL_LEN on the watch, less the terminator.
+// Capped in bytes as well as characters: str_copy truncates bytes, and slicing a
+// multi-byte character in half puts a broken glyph on screen.
+var WATCH_LABEL_BYTES = 95;
+var WATCH_LABEL_CHARS = 63;
 var CHUNK_BYTES = 240;
 
 var _outQueue = [];
@@ -122,7 +127,8 @@ function sendTurnToWatch(turn) {
     PEVT: PEVT_TURN_BEGIN,
     PINT: turn.index,
     PINT2: turn.count,
-    PSTR: trimText(turn.title || 'Assistant', 60)
+    PSTR: truncateBytes(trimText(turn.title || 'Assistant', WATCH_LABEL_CHARS),
+                        WATCH_LABEL_BYTES)
   });
 
   // The chat's title is made from its opening question, so showing that question
@@ -155,7 +161,7 @@ function makeRow(label, sub, action, arg, flags) {
   return {
     // Generous: the watch scrolls a row that does not fit rather than cutting
     // it, so trimming here would just throw away readable text.
-    label: trimText(label || '', 60),
+    label: truncateBytes(trimText(label || '', WATCH_LABEL_CHARS), WATCH_LABEL_BYTES),
     sub: trimText(sub || '', 28),
     action: action || ACT_NONE,
     arg: typeof arg === 'number' ? arg : 0,

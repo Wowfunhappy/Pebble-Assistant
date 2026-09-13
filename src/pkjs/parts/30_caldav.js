@@ -163,18 +163,30 @@ function digestAuthorization(account, challenge, method, url) {
   return 'Digest ' + parts.join(', ');
 }
 
-function readAuthHeader(res) {
+function readHeader(res, name) {
   try {
     if (res && res.xhr && res.xhr.getResponseHeader) {
-      return res.xhr.getResponseHeader('WWW-Authenticate') || '';
+      return res.xhr.getResponseHeader(name) || '';
     }
   } catch (e) { /* some hosts hide response headers */ }
   return '';
 }
 
+function readAuthHeader(res) { return readHeader(res, 'WWW-Authenticate'); }
+
+// Where the request actually ended up.  iCloud bounces callers from the
+// bootstrap host to a per-account shard, and relative hrefs in the reply are
+// relative to the shard, not to what we asked for.
+function effectiveUrl(res, requested) {
+  try {
+    if (res && res.xhr && res.xhr.responseURL) return res.xhr.responseURL;
+  } catch (e) { /* not all hosts expose it */ }
+  return (res && res.finalUrl) || requested;
+}
+
 // Every CalDAV request goes through here so authentication is handled in exactly
 // one place.  Returns the raw response; status interpretation is the caller's.
-function davSend(account, method, url, body, extraHeaders, onDone, isRetry) {
+function davSend(account, method, url, body, extraHeaders, onDone, isRetry, hops) {
   var headers = caldavHeaders(account, extraHeaders);
   var host = urlOrigin(url) || account.kind;
   var challenge = _digestChallenges[host];
@@ -185,14 +197,38 @@ function davSend(account, method, url, body, extraHeaders, onDone, isRetry) {
   httpRequest({ method: method, url: url, headers: headers, body: body, timeout: 40000 },
     function (err, res) {
       if (err) { onDone(err, res); return; }
+
       if (res.status === 401 && !isRetry) {
         var next = parseDigestChallenge(readAuthHeader(res));
         if (next) {
           _digestChallenges[host] = next;
-          davSend(account, method, url, body, extraHeaders, onDone, true);
+          davSend(account, method, url, body, extraHeaders, onDone, true, hops);
           return;
         }
       }
+
+      // iCloud answers the bootstrap host with a 301 to the account's shard.
+      // Following it here keeps the method and the body, which a redirect
+      // followed automatically may not: a PROPFIND turned into a GET comes back
+      // 200 with a body that parses to nothing, and the failure then looks like
+      // an empty calendar rather than a redirect.
+      if (res.status === 301 || res.status === 302 ||
+          res.status === 307 || res.status === 308) {
+        var location = readHeader(res, 'Location');
+        var depth = hops || 0;
+        if (location && depth < 5) {
+          // A new host may want its own credentials challenge, so allow one.
+          davSend(account, method, resolveHref(url, location), body, extraHeaders,
+                  onDone, false, depth + 1);
+          return;
+        }
+        if (!location) {
+          onDone(new Error('Server redirected without saying where (' + res.status + ')'), res);
+          return;
+        }
+      }
+
+      res.finalUrl = url;
       onDone(null, res);
     });
 }
@@ -258,7 +294,8 @@ function caldavDiscover(account, onDone) {
     if (err) { onDone(err, null); return; }
     var principalBlock = xmlFindFirst(res.body, 'current-user-principal');
     var principalHref = principalBlock ? xmlFindFirst(principalBlock, 'href') : null;
-    var principalUrl = principalHref ? resolveHref(account.url, principalHref) : account.url;
+    var bootstrapUrl = effectiveUrl(res, account.url);
+    var principalUrl = principalHref ? resolveHref(bootstrapUrl, principalHref) : bootstrapUrl;
 
     var homeBody = '<?xml version="1.0" encoding="utf-8"?>' +
         '<d:propfind ' + DAV_NS + '><d:prop><c:calendar-home-set/></d:prop></d:propfind>';
@@ -267,8 +304,11 @@ function caldavDiscover(account, onDone) {
       if (err2) { onDone(err2, null); return; }
       var homeBlock = xmlFindFirst(res2.body, 'calendar-home-set');
       var homeHref = homeBlock ? xmlFindFirst(homeBlock, 'href') : null;
-      if (!homeHref) { onDone(new Error('No calendar home found for this account'), null); return; }
-      var homeUrl = resolveHref(principalUrl, homeHref);
+      if (!homeHref) {
+        onDone(new Error('Signed in, but the server listed no calendar home'), null);
+        return;
+      }
+      var homeUrl = resolveHref(effectiveUrl(res2, principalUrl), homeHref);
 
       var listBody = '<?xml version="1.0" encoding="utf-8"?>' +
           '<d:propfind ' + DAV_NS + '><d:prop>' +
@@ -284,7 +324,7 @@ function caldavDiscover(account, onDone) {
           if (!xmlHasTag(block, 'calendar')) continue;        // not a calendar collection
           var href = xmlFindFirst(block, 'href');
           if (!href) continue;
-          var collectionUrl = resolveHref(homeUrl, href);
+          var collectionUrl = resolveHref(effectiveUrl(res3, homeUrl), href);
           var supported = xmlFindFirst(block, 'supported-calendar-component-set') || '';
           var wants = new RegExp('name="' + account.component + '"', 'i');
           if (wants.test(supported)) {

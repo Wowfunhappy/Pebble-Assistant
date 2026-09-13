@@ -51,6 +51,15 @@ that will bite you.
   crypto. Digest signs the request *path*, not the whole URL. Only MD5 and
   MD5-sess with `qop=auth` are implemented; anything else is reported rather
   than failing silently.
+- **iCloud redirects, and the redirect is the whole game.** `caldav.icloud.com`
+  is only a bootstrap host: it answers the principal lookup and then 301s
+  everything else to a per-account shard (`pNN-caldav.icloud.com`). `davSend`
+  follows 301/302/307/308 itself, re-issuing the same method and body -- a
+  redirect followed automatically can turn a PROPFIND into a GET, which returns
+  200 with a body that parses to nothing, so the failure looks like an empty
+  calendar rather than a redirect. Relative hrefs must then be resolved against
+  where the request *landed* (`effectiveUrl`, which prefers `xhr.responseURL`),
+  not against what was asked for.
 - **All CalDAV traffic must go through `davSend`.** Two write paths once called
   `httpRequest` directly and so skipped authentication entirely.
 - **Only advertise tools whose service is configured** (`buildToolDefinitions`).

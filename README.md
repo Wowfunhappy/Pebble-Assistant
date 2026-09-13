@@ -200,6 +200,20 @@ Editing `docs/index.html` locally changes nothing until it is deployed.
 
 ---
 
+### When something does not work
+
+Open Settings, press **Save**, wait a few seconds, then open Settings again and
+expand **Diagnostics**. Each service reports by name, and underneath is the full
+list of requests the phone made: the verb, the address, the status it came back
+with, and — the part that matters — whether the phone's own networking refused
+to send the verb, dropped a header, or moved the request to another host. Tap
+**Copy this log** to paste it somewhere. A first `401` on a CalDAV server is
+normal: that is the Digest handshake, and the next line should be a `200`.
+
+If a CalDAV check fails while discovering the collection, paste the collection's
+own URL into the Calendar URL or Reminders URL box; discovery is then skipped
+entirely.
+
 ## Known limitations
 
 - **Dictation cannot be interrupted with UP or DOWN.** The recording screen

@@ -164,11 +164,23 @@ function digestAuthorization(account, challenge, method, url) {
 }
 
 function readHeader(res, name) {
+  var xhr = res && res.xhr;
+  if (!xhr) return '';
   try {
-    if (res && res.xhr && res.xhr.getResponseHeader) {
-      return res.xhr.getResponseHeader(name) || '';
+    if (xhr.getResponseHeader) {
+      var value = xhr.getResponseHeader(name);
+      if (value) return value;
     }
-  } catch (e) { /* some hosts hide response headers */ }
+  } catch (e) { /* some hosts hide individual headers */ }
+  // Runtimes that refuse the per-header accessor sometimes still hand over the
+  // whole block, and Digest cannot start without the challenge in it.
+  try {
+    if (xhr.getAllResponseHeaders) {
+      var all = xhr.getAllResponseHeaders() || '';
+      var match = new RegExp('^' + name + '\\s*:\\s*(.*)$', 'im').exec(all);
+      if (match) return match[1].replace(/\s+$/, '');
+    }
+  } catch (e2) { /* nothing readable */ }
   return '';
 }
 
@@ -184,6 +196,30 @@ function effectiveUrl(res, requested) {
   return (res && res.finalUrl) || requested;
 }
 
+// A phone's XMLHttpRequest follows redirects on its own, so the 301 below is
+// often invisible to us -- the request simply lands somewhere else.  That
+// matters because a redirect crossing to another host may arrive stripped of its
+// Authorization header, which turns iCloud's bootstrap hop into a 401 that no
+// password can fix.  So remember where requests to a host end up, and when one
+// does come back 401, try the landing host directly before believing it.
+
+var _landings = {};
+
+function rememberLanding(requested, landed) {
+  var from = urlOrigin(requested);
+  var to = urlOrigin(landed);
+  if (from && to && from !== to && _landings[from] !== to) {
+    _landings[from] = to;
+    traceNote(from + ' redirects to ' + to);
+  }
+}
+
+function landingFor(url) {
+  var from = urlOrigin(url);
+  var to = _landings[from];
+  return (to && from) ? to + url.substring(from.length) : '';
+}
+
 // Every CalDAV request goes through here so authentication is handled in exactly
 // one place.  Returns the raw response; status interpretation is the caller's.
 function davSend(account, method, url, body, extraHeaders, onDone, isRetry, hops) {
@@ -197,12 +233,28 @@ function davSend(account, method, url, body, extraHeaders, onDone, isRetry, hops
   httpRequest({ method: method, url: url, headers: headers, body: body, timeout: 40000 },
     function (err, res) {
       if (err) { onDone(err, res); return; }
+      rememberLanding(url, effectiveUrl(res, url));
 
       if (res.status === 401 && !isRetry) {
-        var next = parseDigestChallenge(readAuthHeader(res));
+        var offered = readAuthHeader(res);
+        if (!offered) {
+          // Without the challenge there is no way to answer a Digest server, so
+          // note it: this is the difference between a wrong password and a
+          // runtime that will not show us response headers.
+          traceNote('401 with no readable WWW-Authenticate header');
+        }
+        var next = parseDigestChallenge(offered);
         if (next) {
           _digestChallenges[host] = next;
           davSend(account, method, url, body, extraHeaders, onDone, true, hops);
+          return;
+        }
+        // Not a Digest problem.  If this host has been seen bouncing callers
+        // elsewhere, the credentials may simply not have survived the hop.
+        var direct = landingFor(url);
+        if (direct && (hops || 0) < 5) {
+          traceNote('401 after a redirect; retrying at ' + urlOrigin(direct));
+          davSend(account, method, direct, body, extraHeaders, onDone, false, (hops || 0) + 1);
           return;
         }
       }
@@ -217,9 +269,10 @@ function davSend(account, method, url, body, extraHeaders, onDone, isRetry, hops
         var location = readHeader(res, 'Location');
         var depth = hops || 0;
         if (location && depth < 5) {
+          var target = resolveHref(url, location);
+          rememberLanding(url, target);
           // A new host may want its own credentials challenge, so allow one.
-          davSend(account, method, resolveHref(url, location), body, extraHeaders,
-                  onDone, false, depth + 1);
+          davSend(account, method, target, body, extraHeaders, onDone, false, depth + 1);
           return;
         }
         if (!location) {
@@ -244,7 +297,10 @@ function caldavRequest(account, method, url, body, extraHeaders, onDone) {
       return;
     }
     if (res.status === 405 || res.status === 501) {
-      onDone(new Error('The Pebble app refused a ' + method + ' request'), res);
+      // The server answered, so this is the server declining the verb -- an
+      // address that is not a DAV endpoint, or a proxy in front of one.
+      onDone(new Error('The server would not accept ' + method + ' here (' +
+                       res.status + ') -- check the server URL'), res);
       return;
     }
     if (res.status < 200 || res.status >= 400) {

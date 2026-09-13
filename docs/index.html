@@ -98,6 +98,11 @@
   .diag { font-size: 13px; margin: 8px 0 0; }
   .diag div { padding: 6px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 10px; }
   .diag div:first-child { border-top: 0; }
+  #traceText {
+    font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-all;
+    background: var(--card-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; margin: 0 0 10px; max-height: 320px; overflow: auto;
+  }
   .diag span:last-child { color: var(--dim); text-align: right; }
 
   footer {
@@ -276,7 +281,15 @@
     <div class="body">
       <p class="note">These checks run on your phone right after each save, because the browser cannot
         reach your servers directly. Save once, reopen this page, and the results appear here.</p>
+      <p class="note">If a CalDAV check fails at discovery, pasting the collection's full URL into the
+        Calendar&nbsp;URL or Reminders&nbsp;URL box skips discovery entirely.</p>
       <div class="diag" id="diagList"></div>
+      <div id="traceWrap" style="display:none">
+        <p class="note" style="margin-top:14px">Every request the phone made, in order. If something here
+          says a verb or a header was refused, that is the phone's own networking, not your server.</p>
+        <pre id="traceText"></pre>
+        <button class="btn" id="copyTrace" type="button">Copy this log</button>
+      </div>
     </div>
   </details>
 
@@ -573,6 +586,25 @@
       host.innerHTML = '<p class="note">Nothing checked yet.</p>';
       $('diagWhen').textContent = '';
       return;
+    }
+    if (report.trace && report.trace.length) {
+      $('traceWrap').style.display = '';
+      $('traceText').textContent = report.trace.join('\n');
+      $('copyTrace').addEventListener('click', function () {
+        var text = $('traceText').textContent;
+        var done = function () { $('copyTrace').textContent = 'Copied'; };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { select(); });
+        } else { select(); }
+        function select() {
+          var range = document.createRange();
+          range.selectNodeContents($('traceText'));
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          $('copyTrace').textContent = 'Selected — copy it';
+        }
+      });
     }
     $('diagWhen').textContent = new Date(report.at).toLocaleString();
     [['Models', report.models], ['Calendar', report.calendar],

@@ -246,12 +246,24 @@ function handleWatchMessage(payload) {
 // that failed".
 //
 
+// What a self-test is about to try, with the password left out.  Half the value
+// of the trace is confirming that the settings the page saved are the settings
+// this side is using.
+function describeAccount(account) {
+  var known = caldavCachedCollection(account);
+  return account.url + ' as "' + account.user + '"' +
+         (account.pass ? '' : ' (NO PASSWORD SAVED)') +
+         (known ? ', collection ' + known : ', discovering');
+}
+
 function runDiagnostics(onDone) {
   var report = { at: Date.now(), models: 'not signed in', calendar: 'not configured',
-                 reminders: 'not configured', notes: 'not configured' };
+                 reminders: 'not configured', notes: 'not configured', trace: [] };
+  traceBegin();
 
   function finishCalendar(next) {
-    if (!calendarConfigured()) { next(); return; }
+    if (!calendarConfigured()) { traceNote('calendar: not configured'); next(); return; }
+    traceNote('calendar: ' + describeAccount(caldavAccount('calendar')));
     caldavFetchEvents(new Date(), new Date(Date.now() + 86400000), function (err, events) {
       report.calendar = err ? ('FAILED: ' + err.message)
                             : ('OK - ' + events.length + ' event(s) in the next 24h');
@@ -259,7 +271,8 @@ function runDiagnostics(onDone) {
     });
   }
   function finishReminders(next) {
-    if (!remindersConfigured()) { next(); return; }
+    if (!remindersConfigured()) { traceNote('reminders: not configured'); next(); return; }
+    traceNote('reminders: ' + describeAccount(caldavAccount('reminders')));
     caldavFetchTodos(false, function (err, todos) {
       report.reminders = err ? ('FAILED: ' + err.message)
                              : ('OK - ' + todos.length + ' open reminder(s)');
@@ -267,7 +280,7 @@ function runDiagnostics(onDone) {
     });
   }
   function finishNotes(next) {
-    if (!notesConfigured()) { next(); return; }
+    if (!notesConfigured()) { traceNote('notes: not configured'); next(); return; }
     gmailMeta(function (err, meta) {
       report.notes = err ? ('FAILED: ' + err.message)
                          : ('OK - label "' + meta.label_name + '" on ' + meta.email);
@@ -289,6 +302,7 @@ function runDiagnostics(onDone) {
   finishCalendar(function () {
     finishReminders(function () {
       finishNotes(function () {
+        report.trace = traceLines(traceEnd());
         storeSet(DIAGNOSTICS_KEY, report);
         if (onDone) onDone(report);
       });
@@ -336,9 +350,15 @@ function openConfiguration() {
 
 function applyConfigResponse(raw) {
   if (!raw) return;
-  var decoded = raw;
-  try { decoded = decodeURIComponent(raw); } catch (e) { /* already plain */ }
-  var response = safeParse(decoded, null);
+  // Some hosts hand back the fragment already decoded and some do not, and a
+  // password containing a per-cent sign would be quietly rewritten by decoding
+  // twice.  Trust a string that already parses.
+  var response = safeParse(raw, null);
+  if (!response) {
+    var decoded = raw;
+    try { decoded = decodeURIComponent(raw); } catch (e) { /* already plain */ }
+    response = safeParse(decoded, null);
+  }
   if (!response) { log('config returned nothing usable'); return; }
 
   if (response.settings && typeof response.settings === 'object') {

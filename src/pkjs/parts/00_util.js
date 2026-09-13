@@ -376,30 +376,78 @@ function parseFlexibleDate(value) {
 }
 
 // --- HTTP -------------------------------------------------------------------
+//
+// Every request can be recorded.  On a desk this is a luxury; on a phone it is
+// the only way to find out what actually happened, because the companion app's
+// XMLHttpRequest is not the browser one and differs in ways that matter here:
+// it may refuse a verb it has never heard of, drop a header it does not
+// recognise, or follow a redirect behind our back.  Each of those fails in a
+// way that looks identical from the outside -- "it doesn't work" -- so the
+// self-test turns tracing on and the settings page prints what came back.
+//
+
+var _trace = null;
+
+function traceBegin() { _trace = []; }
+function traceEnd() { var out = _trace; _trace = null; return out || []; }
+
+// Hide the query string: tokens live there.
+function traceUrl(url) {
+  var shown = String(url).replace(/\?[\s\S]*$/, '');
+  return shown.length > 96 ? shown.substring(0, 93) + '...' : shown;
+}
+
+function traceNote(text) {
+  if (_trace) _trace.push({ note: String(text) });
+}
 
 function httpRequest(options, onDone) {
   var method = options.method || 'GET';
   var xhr = new XMLHttpRequest();
   var finished = false;
+  var started = Date.now();
+  var record = _trace ? { method: method, url: traceUrl(options.url) } : null;
+  if (record) _trace.push(record);
 
   function finish(err, res) {
     if (finished) return;
     finished = true;
+    if (record) {
+      record.ms = Date.now() - started;
+      if (err) record.error = err.message || String(err);
+      if (res) {
+        record.status = res.status;
+        if (res.status >= 300 && res.body) {
+          record.body = String(res.body).replace(/\s+/g, ' ').substring(0, 120);
+        }
+      }
+      var landed = null;
+      try { landed = xhr.responseURL || null; } catch (e5) { landed = null; }
+      if (landed && traceUrl(landed) !== record.url) record.landed = traceUrl(landed);
+    }
     try { onDone(err, res); } catch (e) { logErr('httpRequest callback', e); }
   }
 
   try {
     xhr.open(method, options.url, true);
   } catch (e) {
-    finish(new Error('Cannot open ' + method + ' request'), null);
+    // A runtime that only knows GET/POST throws here.  Say so by name, since
+    // "cannot open" would send the reader looking at the server.
+    finish(new Error('This phone refused to send a ' + method + ' request'), null);
     return null;
   }
 
-  xhr.timeout = options.timeout || 60000;
+  try { xhr.timeout = options.timeout || 60000; } catch (e6) { /* not everywhere */ }
   if (options.headers) {
     for (var name in options.headers) {
       if (!Object.prototype.hasOwnProperty.call(options.headers, name)) continue;
-      try { xhr.setRequestHeader(name, options.headers[name]); } catch (e2) { /* ignore */ }
+      try {
+        xhr.setRequestHeader(name, options.headers[name]);
+      } catch (e2) {
+        // Swallowing this is how an unauthenticated request reaches a server
+        // that then answers 401 for reasons nobody can see.
+        if (record) record.dropped = (record.dropped ? record.dropped + ',' : '') + name;
+      }
     }
   }
 
@@ -422,4 +470,21 @@ function httpRequest(options, onDone) {
     finish(e4, null);
   }
   return xhr;
+}
+
+// One line per request, short enough to read on a phone screen.
+function traceLines(trace) {
+  var out = [];
+  for (var i = 0; i < (trace || []).length; i++) {
+    var t = trace[i];
+    if (t.note) { out.push('- ' + t.note); continue; }
+    var line = t.method + ' ' + t.url + ' -> ' + (t.error ? t.error : t.status);
+    if (t.error && typeof t.status === 'number') line += ' (status ' + t.status + ')';
+    if (t.dropped) line += ' [headers refused: ' + t.dropped + ']';
+    if (t.landed) line += ' [landed on ' + t.landed + ']';
+    if (typeof t.ms === 'number') line += ' ' + t.ms + 'ms';
+    if (t.body) line += '\n    ' + t.body;
+    out.push(line);
+  }
+  return out;
 }

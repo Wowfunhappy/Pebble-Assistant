@@ -110,9 +110,25 @@ of it. Submenus stack above whichever is in front.
   sets frames -- it feeds frames now instead of draw calls. The layers hold
   pointers into `s_turn` rather than copies, so the text is re-pointed whenever
   the turn changes, which is exactly when that function runs.
-- The scroll arrows are the stock `ContentIndicator`, painting into two thin
-  layers over the top and bottom of the scrolling area. Availability is
-  recomputed on every content-offset change and whenever the state changes.
+- Running off the top or bottom of a turn steps to the neighbouring one. This is
+  **not** a return to hand-rolled scrolling: `scroll_layer_scroll_up_click_handler`
+  and its DOWN twin are exported by the SDK precisely so a caller can wrap them,
+  and the ScrollLayer's own `click_config_provider` is documented as the place to
+  change what UP and DOWN do. All that is added is the edge case; the step and the
+  animation are still the widget's. A repeat must never cross
+  (`click_recognizer_is_repeating`): holding is a request to scroll, and being
+  flung into the next turn mid-hold loses your place. At the first or last turn
+  nothing happens and nothing is announced, the way a list that has run out
+  behaves.
+- `SCROLL_REPEAT_MS` is the one number that has to match the platform, because
+  re-subscribing the buttons means owning the repeat cadence. Do not guess it and
+  do not reason about it: measure. A stock ScrollLayer holds at ~162px/s on
+  Emery; log `scroll_layer_get_content_offset` from a
+  `content_offset_changed_handler` under a temporary build flag, hold the button,
+  and compare steady-state velocity. 170ms lands at ~158px/s. Re-measure after
+  any change here.
+- There are no scroll arrows. A `ContentIndicator` was tried and removed: on a
+  200px screen the two strips cost more than the affordance was worth.
 - A ScrollLayer hands its window's remaining buttons to the app through
   `ScrollLayerCallbacks.click_config_provider`; a MenuLayer has no such hook, so
   anything it does not bind keeps its default. Neither may re-bind UP or DOWN.

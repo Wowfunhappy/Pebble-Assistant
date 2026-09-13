@@ -14,6 +14,10 @@
 #define PAD            5
 #define TICK_MS        33
 #define TURN_TIMEOUT_MS 5000
+// Measured off a stock ScrollLayer on Emery: holding scrolls continuously at
+// about 165px/s, which at its 32px step is a repeat every ~195ms.  Re-verified
+// against that number after any change here -- see AGENTS.md.
+#define SCROLL_REPEAT_MS 170
 
 static Window *s_window;
 static Layer *s_canvas;        // background, header, and the non-scrolling states
@@ -21,8 +25,6 @@ static ScrollLayer *s_scroller;
 static TextLayer *s_question;  // the turn, inside the scroller
 static TextLayer *s_answer;
 static Layer *s_rule;          // the hairline between the two
-static Layer *s_arrow_up;      // where the ContentIndicator paints its arrows
-static Layer *s_arrow_down;
 static Layer *s_overlay;       // toasts, above everything
 static bool s_loaded;
 static bool s_visible;
@@ -49,7 +51,6 @@ static uint32_t s_await_t0;
 static void ensure_tick(void);
 static void recompute_layout(void);
 static void apply_click_config(void);
-static void update_arrows(void);
 
 // --- small helpers ----------------------------------------------------------
 
@@ -257,18 +258,14 @@ static void ensure_tick(void) {
 
 static void scroll_to_top(void) {
   if (s_scroller) scroll_layer_set_content_offset(s_scroller, GPointZero, false);
-  update_arrows();
 }
 
 static void goto_turn(int8_t dir) {
   if (s_state != REPLY_SHOW || s_awaiting_turn) return;
   int32_t target = s_turn.index + dir;
-  if (target < 0 || target >= s_turn.count) {
-    vibe_bump();
-    toast_show(dir < 0 ? "First turn" : "Last turn");
-    ensure_tick();
-    return;
-  }
+  // At the first or last turn there is simply nothing there, and a list that
+  // has run out does not announce it.
+  if (target < 0 || target >= s_turn.count) return;
   s_awaiting_turn = true;
   s_await_t0 = s_phase;
   vibe_bump();
@@ -324,21 +321,6 @@ static void recompute_layout(void) {
   // appears over a half-painted screen.
   if (s_content_h < view.size.h) s_content_h = view.size.h;
   scroll_layer_set_content_size(s_scroller, GSize(view.size.w, s_content_h));
-  update_arrows();
-}
-
-// The stock arrows, which only appear when there is something to scroll to.
-static void update_arrows(void) {
-  if (!s_scroller) return;
-  ContentIndicator *indicator = scroll_layer_get_content_indicator(s_scroller);
-  if (!indicator) return;
-  GRect view = scroll_frame();
-  int16_t offset = -scroll_layer_get_content_offset(s_scroller).y;
-  bool showing = s_state == REPLY_SHOW;
-  content_indicator_set_content_available(indicator, ContentIndicatorDirectionUp,
-                                          showing && offset > 0);
-  content_indicator_set_content_available(indicator, ContentIndicatorDirectionDown,
-                                          showing && offset + view.size.h < s_content_h);
 }
 
 // The scroller owns UP and DOWN whenever it is on screen; a reminder takes them
@@ -346,7 +328,6 @@ static void update_arrows(void) {
 static void update_visibility(void) {
   if (!s_scroller) return;
   layer_set_hidden(scroll_layer_get_layer(s_scroller), s_state != REPLY_SHOW);
-  update_arrows();
   apply_click_config();
 }
 
@@ -443,7 +424,7 @@ static void action_performed(ActionMenu *menu, const ActionMenuItem *action, voi
       // Nothing is discarded until the replacement question actually arrives,
       // so backing out of the microphone leaves the conversation untouched.
       int32_t turn = reply_window_turn_index();
-      if (turn < 0) { toast_show("Nothing to redo"); break; }
+      if (turn < 0) break;   // the menu only opens on a settled turn anyway
       dictation_start_redo(turn);
       break;
     }
@@ -508,11 +489,37 @@ static void back_click(ClickRecognizerRef recognizer, void *context) {
   window_stack_pop(true);
 }
 
-static void scroller_moved(ScrollLayer *scroller, void *context) { update_arrows(); }
 
-// Called by the ScrollLayer after it has claimed UP and DOWN, so this must not
-// touch them.
+static bool at_top(void) {
+  return !s_scroller || scroll_layer_get_content_offset(s_scroller).y >= 0;
+}
+
+static bool at_bottom(void) {
+  if (!s_scroller) return true;
+  return -scroll_layer_get_content_offset(s_scroller).y + scroll_frame().size.h >= s_content_h;
+}
+
+// Running off the end of a turn steps to the neighbouring one.  The scrolling
+// itself is still entirely the ScrollLayer's: its own click handlers are
+// exported for exactly this, so all that is added here is the question of what
+// happens at the edge.  A repeat never crosses over -- holding the button is a
+// request to scroll, and being flung into the next turn mid-hold loses your
+// place.
+static void up_click(ClickRecognizerRef recognizer, void *context) {
+  if (at_top() && !click_recognizer_is_repeating(recognizer)) { goto_turn(-1); return; }
+  scroll_layer_scroll_up_click_handler(recognizer, s_scroller);
+}
+
+static void down_click(ClickRecognizerRef recognizer, void *context) {
+  if (at_bottom() && !click_recognizer_is_repeating(recognizer)) { goto_turn(1); return; }
+  scroll_layer_scroll_down_click_handler(recognizer, s_scroller);
+}
+
+// Called by the ScrollLayer after it has configured UP and DOWN, which is the
+// documented place to change what they do.
 static void scroller_clicks(void *context) {
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, SCROLL_REPEAT_MS, up_click);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, SCROLL_REPEAT_MS, down_click);
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
   window_long_click_subscribe(BUTTON_ID_SELECT, 500, select_long, NULL);
   window_single_click_subscribe(BUTTON_ID_BACK, back_click);
@@ -550,7 +557,6 @@ static void window_load(Window *window) {
   scroll_layer_set_shadow_hidden(s_scroller, false);
   scroll_layer_set_callbacks(s_scroller, (ScrollLayerCallbacks) {
     .click_config_provider = scroller_clicks,
-    .content_offset_changed_handler = scroller_moved,
   });
 
   s_question = text_layer_create(GRect(PAD, 0, view.size.w - 2 * PAD, 20));
@@ -573,22 +579,6 @@ static void window_load(Window *window) {
 
   layer_add_child(root, scroll_layer_get_layer(s_scroller));
 
-  // The stock arrows paint into layers of our choosing, laid over the top and
-  // bottom edges of the scrolling area.
-  ContentIndicator *indicator = scroll_layer_get_content_indicator(s_scroller);
-  s_arrow_up = layer_create(GRect(0, view.origin.y, b.size.w, 14));
-  s_arrow_down = layer_create(GRect(0, b.size.h - 14, b.size.w, 14));
-  layer_add_child(root, s_arrow_up);
-  layer_add_child(root, s_arrow_down);
-  content_indicator_configure_direction(indicator, ContentIndicatorDirectionUp,
-    &(ContentIndicatorConfig) { .layer = s_arrow_up, .times_out = false,
-      .alignment = GAlignCenter,
-      .colors = { .foreground = t->accent, .background = t->background } });
-  content_indicator_configure_direction(indicator, ContentIndicatorDirectionDown,
-    &(ContentIndicatorConfig) { .layer = s_arrow_down, .times_out = false,
-      .alignment = GAlignCenter,
-      .colors = { .foreground = t->accent, .background = t->background } });
-
   // Toasts sit above the scroller, which otherwise covers the lower half of the
   // screen and would swallow them.
   s_overlay = layer_create(b);
@@ -602,8 +592,6 @@ static void window_load(Window *window) {
 static void window_unload(Window *window) {
   s_loaded = false;
   if (s_overlay) { layer_destroy(s_overlay); s_overlay = NULL; }
-  if (s_arrow_up) { layer_destroy(s_arrow_up); s_arrow_up = NULL; }
-  if (s_arrow_down) { layer_destroy(s_arrow_down); s_arrow_down = NULL; }
   if (s_scroller) { scroll_layer_destroy(s_scroller); s_scroller = NULL; }
   if (s_question) { text_layer_destroy(s_question); s_question = NULL; }
   if (s_answer) { text_layer_destroy(s_answer); s_answer = NULL; }

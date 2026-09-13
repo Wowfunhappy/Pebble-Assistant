@@ -43,7 +43,7 @@ conversation history can all change without a new watch build.
 | Screen | Button | Action |
 |---|---|---|
 | Dictation | BACK | Cancel and show the chats list |
-| Reply | UP / DOWN | Scroll. Past the top or bottom edge moves to the adjacent turn |
+| Reply | UP / DOWN | Scroll, 32px a press. Hold to keep scrolling. A press at the top or bottom edge moves to the adjacent turn |
 | Reply | UP ×2 / DOWN ×2 | Previous / next turn |
 | Reply | SELECT | Keep talking in this conversation |
 | Reply | SELECT (hold) | Options for this conversation |
@@ -69,7 +69,11 @@ Chat** preselected — so backing out of the microphone leaves a retry one press
 away.
 
 Lists do not wrap and do not exit at their ends; they stop. The way back into a
-conversation is to select it. Every screen's title bar carries the clock.
+conversation is to select it. A selected row too long for the screen slides
+sideways so you can read all of it, as does a conversation's title.
+
+The title bar carries the clock everywhere except inside a conversation, where
+the turn counter has the space instead.
 
 Pebble's dictation is a system screen that owns all four buttons while it is
 recording, so BACK is the only gesture available inside it. That is why

@@ -40,6 +40,8 @@ static int32_t s_incoming_list = -1;
 static char s_list_title[MAX_TITLE_LEN];
 static bool s_loading;
 static bool s_offline;   // showing the locally synthesised rows
+static bool s_row_scrolling;
+static uint32_t s_marquee_t0;
 
 static uint32_t s_phase;
 static AppTimer *s_tick;
@@ -121,6 +123,7 @@ void list_window_end(int32_t list_id, int32_t selected) {
   if (selected < 0) selected = 0;
   if (selected >= s_row_count) selected = s_row_count > 0 ? s_row_count - 1 : 0;
   s_sel = selected;
+  s_marquee_t0 = s_phase;
   s_hl = s_hl_to = row_top(s_sel);
   s_hl_moving = false;
   s_scroll = s_scroll_to = 0;
@@ -184,6 +187,7 @@ static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected
   int16_t h = s_row_h[index];
   int16_t right_pad = 6;
 
+  GColor row_bg = selected ? t->accent : t->background;
   if (selected) {
     graphics_context_set_fill_color(ctx, t->accent);
     graphics_fill_rect(ctx, GRect(2, y + 1, b.size.w - 4, h - 2), 4, GCornersAll);
@@ -193,7 +197,9 @@ static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected
                                 : ((row->flags & ROW_FLAG_ACCENT) ? t->accent : t->text);
   GColor sub_color = selected ? GColorBlack : t->text_dim;
 
-  // Trailing badge: toggle state, submenu chevron, or the "current value" dot.
+  // Trailing furniture: toggle state, submenu chevron, or the "current value"
+  // dot.  Measured now, drawn after the label -- a scrolling label is painted
+  // wide and masked back, and the mask must be free to sweep the whole row.
   const char *badge = NULL;
   if (row->flags & ROW_FLAG_ON) badge = "ON";
   else if (row->flags & ROW_FLAG_OFF) badge = "OFF";
@@ -204,6 +210,27 @@ static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected
     badge_w = graphics_text_layout_get_content_size(badge, theme_font_small(),
                   GRect(0, 0, 60, 20), GTextOverflowModeTrailingEllipsis,
                   GTextAlignmentRight).w + 4;
+  } else if (row->flags & ROW_FLAG_CURRENT) {
+    badge_w = 12;
+  }
+
+  // The selected row slides a long label sideways rather than cutting it off;
+  // unselected rows stay still and simply truncate.
+  GRect label_box = GRect(8, y + 1, b.size.w - 14 - badge_w - right_pad, ROW_BASE_H);
+  if (selected) {
+    if (theme_draw_marquee(ctx, label_box,
+                           GRect(3, y + 1, b.size.w - 6, ROW_BASE_H),
+                           row->label, theme_font_title(), label_color, row_bg,
+                           (s_phase - s_marquee_t0) * TICK_MS)) {
+      s_row_scrolling = true;
+    }
+  } else {
+    graphics_context_set_text_color(ctx, label_color);
+    graphics_draw_text(ctx, row->label, theme_font_title(), label_box,
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  }
+
+  if (badge) {
     graphics_context_set_text_color(ctx, label_color);
     graphics_draw_text(ctx, badge, theme_font_small(),
                        GRect(b.size.w - badge_w - right_pad, y + 3, badge_w, 20),
@@ -211,13 +238,7 @@ static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected
   } else if (row->flags & ROW_FLAG_CURRENT) {
     graphics_context_set_fill_color(ctx, selected ? GColorBlack : t->accent);
     graphics_fill_circle(ctx, GPoint(b.size.w - 10, y + ROW_BASE_H / 2), 3);
-    badge_w = 12;
   }
-
-  graphics_context_set_text_color(ctx, label_color);
-  graphics_draw_text(ctx, row->label, theme_font_title(),
-                     GRect(8, y + 1, b.size.w - 14 - badge_w - right_pad, ROW_BASE_H),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   if (row->sub[0]) {
     graphics_context_set_text_color(ctx, sub_color);
@@ -249,7 +270,7 @@ static void canvas_update(Layer *layer, GContext *ctx) {
 
   if (s_loading || s_row_count == 0) {
     draw_loading(ctx, b);
-    theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL);
+    theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL, true, 0);
     return;
   }
 
@@ -263,13 +284,15 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, t->accent);
   graphics_fill_rect(ctx, GRect(2, hl_y + 1, b.size.w - 4, hl_h - 2), 4, GCornersAll);
 
+  s_row_scrolling = false;
   for (int i = 0; i < s_row_count; i++) {
     int16_t y = origin + row_top(i);
     if (y > b.size.h || y + s_row_h[i] < top) continue;
     draw_row(ctx, b, i, y, i == s_sel);
   }
 
-  theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL);
+  theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL,
+                    /*show_clock*/ true, (s_phase - s_marquee_t0) * TICK_MS);
   toast_draw(ctx, b);
 }
 
@@ -301,7 +324,7 @@ static void tick_cb(void *data) {
     else { s_bounce = 0; s_bouncing = false; }
     busy = busy || s_bouncing;
   }
-  if (toast_active()) busy = true;
+  if (toast_active() || s_row_scrolling) busy = true;
   if (s_loading) {
     if (elapsed_ms(s_load_t0) > LOAD_TIMEOUT_MS) {
       s_loading = false;
@@ -345,6 +368,7 @@ static void move_selection(int delta) {
   int next = s_sel + delta;
   if (next < 0 || next >= s_row_count) return;
   s_sel = next;
+  s_marquee_t0 = s_phase;   // a new row starts its scroll from the beginning
   s_hl_from = s_hl;
   s_hl_to = row_top(s_sel);
   s_hl_t0 = s_phase;

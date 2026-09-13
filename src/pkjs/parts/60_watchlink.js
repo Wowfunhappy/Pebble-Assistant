@@ -122,10 +122,15 @@ function sendTurnToWatch(turn) {
     PEVT: PEVT_TURN_BEGIN,
     PINT: turn.index,
     PINT2: turn.count,
-    PSTR: trimText(turn.title || 'Assistant', 30)
+    PSTR: trimText(turn.title || 'Assistant', 60)
   });
 
-  var question = truncateBytes(plainify(turn.question || ''), WATCH_QUESTION_BYTES);
+  // The chat's title is made from its opening question, so showing that question
+  // again in the body is pure duplication -- and the title bar scrolls long ones
+  // into view anyway.  Later turns carry their own question, which is new.
+  var question = turn.index === 0
+    ? ''
+    : truncateBytes(plainify(turn.question || ''), WATCH_QUESTION_BYTES);
   var chunks = splitUtf8(question, CHUNK_BYTES);
   var i;
   for (i = 0; i < chunks.length; i++) {
@@ -148,7 +153,9 @@ function sendTurnToWatch(turn) {
 
 function makeRow(label, sub, action, arg, flags) {
   return {
-    label: trimText(label || '', 36),
+    // Generous: the watch scrolls a row that does not fit rather than cutting
+    // it, so trimming here would just throw away readable text.
+    label: trimText(label || '', 60),
     sub: trimText(sub || '', 28),
     action: action || ACT_NONE,
     arg: typeof arg === 'number' ? arg : 0,
@@ -189,7 +196,7 @@ function relativeAge(timestamp) {
 // away.
 function sendChatsList() {
   var rows = [
-    makeRow('Settings', modelLabel(activeModel()), ACT_SUBMENU, LIST_SETTINGS, ROW_FLAG_CHEVRON),
+    makeRow('Settings', '', ACT_SUBMENU, LIST_SETTINGS, ROW_FLAG_CHEVRON),
     makeRow('New Chat', '', ACT_NEW_CHAT, 0, ROW_FLAG_ACCENT)
   ];
   var chats = chatList();
@@ -255,10 +262,9 @@ function sendEffortList() {
 // Long-pressing SELECT inside a conversation.  One entry for now; the list
 // exists so there is somewhere for the next one to go.
 function sendChatActionsList() {
-  var chat = activeChat();
   var rows = [
-    makeRow('Ask again', 'Re-record this question', ACT_REDO_TURN, 0, 0),
-    makeRow('Delete chat', chat ? chat.title : '', ACT_DELETE_CHAT, 0, 0)
+    makeRow('Ask again', '', ACT_REDO_TURN, 0, 0),
+    makeRow('Delete chat', '', ACT_DELETE_CHAT, 0, 0)
   ];
   sendList(LIST_CHAT_ACTIONS, 'Options', rows, 0);
 }

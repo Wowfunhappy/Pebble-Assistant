@@ -89,7 +89,7 @@
 #define MAX_ANSWER_LEN     2048
 #define MAX_TITLE_LEN      64
 #define MAX_STATUS_LEN     96   // also holds error text, which runs longer
-#define MAX_ROW_LABEL_LEN  40
+#define MAX_ROW_LABEL_LEN  64   // long enough that the marquee has something to scroll
 #define MAX_ROW_SUB_LEN    32
 #define MAX_LIST_ROWS      20
 #define MAX_WAKEUPS        8
@@ -116,7 +116,10 @@ GFont theme_font_question(void);
 GFont theme_font_title(void);
 GFont theme_font_small(void);
 int16_t theme_header_height(void);
-void theme_draw_header(GContext *ctx, GRect bounds, const char *left, const char *right);
+bool theme_draw_header(GContext *ctx, GRect bounds, const char *left, const char *right,
+                       bool show_clock, uint32_t marquee_ms);
+bool theme_draw_marquee(GContext *ctx, GRect box, GRect mask, const char *text,
+                        GFont font, GColor ink, GColor background, uint32_t elapsed_ms);
 
 // ---------------------------------------------------------------------------
 // Communication (comm.c)

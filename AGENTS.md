@@ -67,6 +67,23 @@ of it. Submenus stack above whichever is in front.
   rubber-band bounce. The way back into a conversation is to select it, and BACK
   leaves a submenu. An over-scroll that silently changed screens was far too
   easy to trigger while hunting for a row.
+- **Scrolling matches the platform, measured rather than guessed.** A stock
+  ScrollLayer on Emery moves 32px per press and repeats about every 140ms while
+  held; `SCROLL_STEP_PX` / `SCROLL_REPEAT_MS` mirror that. If you doubt it,
+  build a throwaway app with a real ScrollLayer over a ruler and read the
+  offset -- do not invent a step.
+- `window_single_repeating_click_subscribe` and `window_multi_click_subscribe`
+  do coexist on one button, so hold-to-scroll and double-tap-for-turn both work.
+  A repeat must not change turns (`click_recognizer_is_repeating`): holding is a
+  request to scroll, and flinging into the next turn mid-hold loses your place.
+- **Marquee draw order.** Pebble has no per-draw clipping, so
+  `theme_draw_marquee` paints the text wide and masks the overflow back in the
+  background colour. Anything sharing the strip -- a badge, the clock, a chevron,
+  the current-row dot -- must be measured first but drawn *after* the label, or
+  the mask (or the overflowing text) eats it.
+- Do not pre-truncate text that will scroll. Titles and row labels go to the
+  watch at full length; trimming them phone-side leaves the marquee nothing to
+  reveal, which is exactly the bug it is there to solve.
 - Text size lives on the phone only. A change arrives in PEVT_SETTINGS and must
   re-measure both windows: every cached text metric was taken with the old font.
 - The header clock means a minute tick has to redraw whichever window is front.

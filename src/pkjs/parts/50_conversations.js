@@ -32,7 +32,8 @@ function makeTitle(question) {
   text = text.replace(/^(hey|hi|ok|okay|please|can you|could you|would you)\s+/i, '');
   text = text.replace(/[?.!,]+$/, '');
   if (!text) return 'New chat';
-  return titleCaseFirst(trimText(text, 38));
+  // The watch scrolls long titles, so a fuller one is more use than a short one.
+  return titleCaseFirst(trimText(text, 56));
 }
 
 function newChat() {

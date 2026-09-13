@@ -12,7 +12,11 @@
 
 #define PAD            5
 #define TICK_MS        33
-#define SCROLL_MS      190
+#define SCROLL_MS      110
+// Measured from a stock ScrollLayer on Emery: one press moves 32px, and
+// holding repeats about every 140ms.  Match it rather than invent a step.
+#define SCROLL_STEP_PX 32
+#define SCROLL_REPEAT_MS 140
 #define SLIDE_OUT_MS   130
 #define SLIDE_IN_MS    200
 #define BOUNCE_MS      230
@@ -53,6 +57,8 @@ static uint32_t s_bounce_t0;
 static int8_t s_bounce_dir;
 static bool s_bouncing;
 
+static bool s_title_scrolling;
+static uint32_t s_marquee_t0;
 static int8_t s_pending_dir;
 static bool s_awaiting_turn;
 static uint32_t s_await_t0;
@@ -69,10 +75,7 @@ static int16_t max_scroll(void) {
   return m > 0 ? m : 0;
 }
 
-static int16_t scroll_step(void) {
-  int16_t step = (int16_t)((s_view_h * 3) / 4);
-  return step < 20 ? 20 : step;
-}
+static int16_t scroll_step(void) { return SCROLL_STEP_PX; }
 
 ReplyState reply_window_state(void) { return s_state; }
 
@@ -179,7 +182,9 @@ static void draw_conversation(GContext *ctx, GRect b) {
   } else {
     badge[0] = '\0';
   }
-  theme_draw_header(ctx, b, s_turn.title[0] ? s_turn.title : comm_model_label(), badge);
+  s_title_scrolling = theme_draw_header(ctx, b,
+      s_turn.title[0] ? s_turn.title : comm_model_label(), badge,
+      /*show_clock*/ false, (s_phase - s_marquee_t0) * TICK_MS);
 }
 
 static void draw_busy(GContext *ctx, GRect b) {
@@ -209,7 +214,8 @@ static void draw_busy(GContext *ctx, GRect b) {
                      GRect(PAD, center.y + radius + 4, w, 40),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
-  theme_draw_header(ctx, b, comm_model_label(), NULL);
+  s_title_scrolling = theme_draw_header(ctx, b, comm_model_label(), NULL, false,
+                                        (s_phase - s_marquee_t0) * TICK_MS);
 }
 
 static void draw_error(GContext *ctx, GRect b) {
@@ -234,7 +240,7 @@ static void draw_error(GContext *ctx, GRect b) {
                      GRect(PAD, b.size.h - 18, w, 18),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
-  theme_draw_header(ctx, b, "Problem", NULL);
+  s_title_scrolling = theme_draw_header(ctx, b, "Problem", NULL, false, 0);
 }
 
 static void draw_alert(GContext *ctx, GRect b) {
@@ -261,7 +267,7 @@ static void draw_alert(GContext *ctx, GRect b) {
                      GRect(PAD, b.size.h - 18, w, 18),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
-  theme_draw_header(ctx, b, "Reminder", NULL);
+  s_title_scrolling = theme_draw_header(ctx, b, "Reminder", NULL, false, 0);
 }
 
 static void canvas_update(Layer *layer, GContext *ctx) {
@@ -330,7 +336,7 @@ static void tick_cb(void *data) {
   }
 
   if (s_state == REPLY_BUSY || s_state == REPLY_ALERT) busy = true;
-  if (toast_active()) busy = true;
+  if (toast_active() || s_title_scrolling) busy = true;
 
   if (s_canvas) layer_mark_dirty(s_canvas);
   if (busy && s_visible) s_tick = app_timer_register(TICK_MS, tick_cb, NULL);
@@ -353,6 +359,7 @@ static void scroll_to(int16_t target) {
 }
 
 static void bounce(int8_t dir) {
+  if (s_bouncing) return;   // holding the button must not machine-gun the buzzer
   s_bounce_dir = dir;
   s_bounce_t0 = s_phase;
   s_bouncing = true;
@@ -450,6 +457,7 @@ void reply_window_show_turn(const Turn *turn) {
 
   memcpy(&s_turn, turn, sizeof(Turn));
   s_state = REPLY_SHOW;
+  s_marquee_t0 = s_phase;
   s_scroll = s_scroll_to = 0;
   s_scrolling = false;
   s_bouncing = false;
@@ -499,15 +507,25 @@ static void up_click(ClickRecognizerRef recognizer, void *context) {
     return;
   }
   if (s_state != REPLY_SHOW || s_awaiting_turn) return;
-  if (s_scroll_to <= 0) goto_turn(-1);
-  else scroll_to(s_scroll_to - scroll_step());
+  if (s_scroll_to <= 0) {
+    // Holding the button is a request to scroll, not to leave the turn.  Only a
+    // deliberate press runs off the end into the neighbouring one.
+    if (click_recognizer_is_repeating(recognizer)) return;
+    goto_turn(-1);
+  } else {
+    scroll_to(s_scroll_to - scroll_step());
+  }
 }
 
 static void down_click(ClickRecognizerRef recognizer, void *context) {
   if (s_state == REPLY_ALERT) return;
   if (s_state != REPLY_SHOW || s_awaiting_turn) return;
-  if (s_scroll_to >= max_scroll()) goto_turn(1);
-  else scroll_to(s_scroll_to + scroll_step());
+  if (s_scroll_to >= max_scroll()) {
+    if (click_recognizer_is_repeating(recognizer)) return;
+    goto_turn(1);
+  } else {
+    scroll_to(s_scroll_to + scroll_step());
+  }
 }
 
 static void up_double(ClickRecognizerRef recognizer, void *context) {
@@ -528,8 +546,8 @@ static void back_click(ClickRecognizerRef recognizer, void *context) {
 static void click_config(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
   window_long_click_subscribe(BUTTON_ID_SELECT, 500, select_long, NULL);
-  window_single_click_subscribe(BUTTON_ID_UP, up_click);
-  window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
+  window_single_repeating_click_subscribe(BUTTON_ID_UP, SCROLL_REPEAT_MS, up_click);
+  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, SCROLL_REPEAT_MS, down_click);
   window_multi_click_subscribe(BUTTON_ID_UP, 2, 2, 260, true, up_double);
   window_multi_click_subscribe(BUTTON_ID_DOWN, 2, 2, 260, true, down_double);
   window_single_click_subscribe(BUTTON_ID_BACK, back_click);

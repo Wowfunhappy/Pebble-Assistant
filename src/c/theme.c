@@ -28,18 +28,20 @@ void theme_set_font_scale(int32_t index) {
 // Pebble Time 2 (Emery) is 200x228 and carries a noticeably denser panel than
 // the 144x168 platforms, so it gets its own font ladder rather than scaled-up
 // versions of the small one.
+// Replies are bold: it is a small screen read at arm's length, often moving.
+// Gothic only reaches 28, so extra large steps up to Bitham Black.
 GFont theme_font_body(void) {
 #ifdef PBL_PLATFORM_EMERY
   switch (s_font_scale) {
-    case 2:  return fonts_get_system_font(FONT_KEY_GOTHIC_28);
-    case 1:  return fonts_get_system_font(FONT_KEY_GOTHIC_24);
-    default: return fonts_get_system_font(FONT_KEY_GOTHIC_24);
+    case 2:  return fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK);
+    case 1:  return fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+    default: return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
   }
 #else
   switch (s_font_scale) {
-    case 2:  return fonts_get_system_font(FONT_KEY_GOTHIC_24);
-    case 1:  return fonts_get_system_font(FONT_KEY_GOTHIC_18);
-    default: return fonts_get_system_font(FONT_KEY_GOTHIC_18);
+    case 2:  return fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+    case 1:  return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    default: return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   }
 #endif
 }
@@ -74,6 +76,62 @@ int16_t theme_header_height(void) {
 #endif
 }
 
+#define MARQUEE_HEAD_PAUSE_MS 1400
+#define MARQUEE_TAIL_PAUSE_MS 900
+#define MARQUEE_MS_PER_PX 26
+
+// Draws left-aligned text, sliding it sideways when it does not fit so the
+// whole thing can be read.  Returns true while it is moving, so the caller
+// knows to keep animating.
+//
+// Pebble has no per-draw clipping, so the text is drawn wide and whatever
+// spills outside `box` is painted back over in `background`; `mask` bounds how
+// far that repainting may reach.
+bool theme_draw_marquee(GContext *ctx, GRect box, GRect mask, const char *text,
+                        GFont font, GColor ink, GColor background, uint32_t elapsed_ms) {
+  if (!text || !text[0] || box.size.w <= 0) return false;
+
+  int16_t text_w = graphics_text_layout_get_content_size(text, font,
+                       GRect(0, 0, 2000, box.size.h + 8),
+                       GTextOverflowModeWordWrap, GTextAlignmentLeft).w;
+
+  graphics_context_set_text_color(ctx, ink);
+  if (text_w <= box.size.w) {
+    graphics_draw_text(ctx, text, font, box, GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    return false;
+  }
+
+  int16_t overflow = text_w - box.size.w;
+  uint32_t travel_ms = (uint32_t)overflow * MARQUEE_MS_PER_PX;
+  uint32_t cycle = MARQUEE_HEAD_PAUSE_MS + travel_ms + MARQUEE_TAIL_PAUSE_MS;
+  uint32_t t = cycle ? (elapsed_ms % cycle) : 0;
+
+  int16_t shift = 0;
+  if (t > MARQUEE_HEAD_PAUSE_MS) {
+    uint32_t moved = t - MARQUEE_HEAD_PAUSE_MS;
+    shift = (moved >= travel_ms) ? overflow
+                                 : (int16_t)(((uint32_t)overflow * moved) / travel_ms);
+  }
+
+  graphics_draw_text(ctx, text, font,
+                     GRect(box.origin.x - shift, box.origin.y, text_w + 8, box.size.h),
+                     GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+
+  graphics_context_set_fill_color(ctx, background);
+  if (box.origin.x > mask.origin.x) {
+    graphics_fill_rect(ctx, GRect(mask.origin.x, box.origin.y,
+                                  box.origin.x - mask.origin.x, box.size.h), 0, GCornerNone);
+  }
+  int16_t right = box.origin.x + box.size.w;
+  int16_t mask_right = mask.origin.x + mask.size.w;
+  if (mask_right > right) {
+    graphics_fill_rect(ctx, GRect(right, box.origin.y, mask_right - right, box.size.h),
+                       0, GCornerNone);
+  }
+  return true;
+}
+
 // Honours the watch's own 12/24-hour setting.
 static void header_clock(char *buffer, size_t capacity) {
   time_t now = time(NULL);
@@ -91,9 +149,13 @@ static int16_t text_width(const char *text, GFont font, int16_t limit) {
              GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft).w;
 }
 
-// A compact title bar: accent rule, left title, then the optional badge and the
-// clock packed against the right edge.  It is a watch; the time earns its place.
-void theme_draw_header(GContext *ctx, GRect bounds, const char *left, const char *right) {
+// A compact title bar: accent rule, left title, then the optional badge and,
+// where it is wanted, the clock -- both packed against the right edge.
+//
+// The conversation view passes show_clock=false: there the turn counter is the
+// thing worth the space.  Returns true while the title is scrolling.
+bool theme_draw_header(GContext *ctx, GRect bounds, const char *left, const char *right,
+                       bool show_clock, uint32_t marquee_ms) {
   const Theme *t = theme();
   const int16_t height = theme_header_height();
   const int16_t top = bounds.origin.y;
@@ -104,32 +166,42 @@ void theme_draw_header(GContext *ctx, GRect bounds, const char *left, const char
   graphics_fill_rect(ctx, GRect(bounds.origin.x, top + height - 2, bounds.size.w, 2), 0, GCornerNone);
 
   GFont small = theme_font_small();
-  int16_t edge = bounds.origin.x + bounds.size.w - 4;
   int16_t baseline = top + (height - 16) / 2 - 2;
 
+  // Measure the right-hand furniture first, but draw it last: a scrolling title
+  // is painted wide and then masked back, and the mask has to be free to sweep
+  // the whole bar without eating whatever sits at the end of it.
   char clock_text[10];
-  header_clock(clock_text, sizeof(clock_text));
-  int16_t clock_w = text_width(clock_text, small, bounds.size.w);
-  graphics_context_set_text_color(ctx, t->text_dim);
-  graphics_draw_text(ctx, clock_text, small, GRect(edge - clock_w, baseline, clock_w, 18),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
-  edge -= clock_w + 6;
+  int16_t clock_w = 0;
+  if (show_clock) {
+    header_clock(clock_text, sizeof(clock_text));
+    clock_w = text_width(clock_text, small, bounds.size.w) + 6;
+  }
+  int16_t badge_w = (right && right[0]) ? text_width(right, small, bounds.size.w) + 6 : 0;
 
-  if (right && right[0]) {
-    int16_t badge_w = text_width(right, small, bounds.size.w);
-    graphics_context_set_text_color(ctx, t->accent);
-    graphics_draw_text(ctx, right, small, GRect(edge - badge_w, baseline, badge_w, 18),
+  bool scrolling = false;
+  int16_t title_x = bounds.origin.x + 4;
+  int16_t title_w = bounds.origin.x + bounds.size.w - 4 - clock_w - badge_w - title_x;
+  if (left && left[0] && title_w > 8) {
+    scrolling = theme_draw_marquee(ctx,
+        GRect(title_x, top - 1, title_w, height - 2),
+        GRect(bounds.origin.x, top - 1, bounds.size.w, height - 2),
+        left, theme_font_title(), t->text, t->surface, marquee_ms);
+  }
+
+  int16_t edge = bounds.origin.x + bounds.size.w - 4;
+  if (show_clock) {
+    graphics_context_set_text_color(ctx, t->text_dim);
+    graphics_draw_text(ctx, clock_text, small,
+                       GRect(edge - (clock_w - 6), baseline, clock_w - 6, 18),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
-    edge -= badge_w + 6;
+    edge -= clock_w;
   }
-
-  if (left && left[0]) {
-    int16_t title_w = edge - (bounds.origin.x + 4);
-    if (title_w > 8) {
-      graphics_context_set_text_color(ctx, t->text);
-      graphics_draw_text(ctx, left, theme_font_title(),
-          GRect(bounds.origin.x + 4, top - 1, title_w, height),
-          GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-    }
+  if (badge_w > 0) {
+    graphics_context_set_text_color(ctx, t->accent);
+    graphics_draw_text(ctx, right, small,
+                       GRect(edge - (badge_w - 6), baseline, badge_w - 6, 18),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
   }
+  return scrolling;
 }

@@ -10,12 +10,15 @@
 // Only the front list's rows are held in memory; going back re-requests the
 // parent from the phone, which doubles as a cheap way to keep displayed values
 // (current model, toggle states) honest after a change.
+//
+// The list is a stock MenuLayer.  Rows are drawn by hand -- badges, dots and a
+// marquee on the selected label -- but selection, scrolling and the repeat rate
+// belong to the platform, because a list that scrolls even slightly unlike every
+// other list on the watch reads as broken however nice the animation is.
 // ---------------------------------------------------------------------------
 
 #define LIST_DEPTH      3
 #define TICK_MS         33
-#define HL_MS           150
-#define SCROLL_MS       170
 #define LOAD_TIMEOUT_MS 5000
 
 #ifdef PBL_PLATFORM_EMERY
@@ -27,61 +30,57 @@
 #endif
 
 static Window *s_windows[LIST_DEPTH];
-static Layer *s_canvas[LIST_DEPTH];
+static Layer *s_canvas[LIST_DEPTH];     // background, header and the loading state
+static MenuLayer *s_menus[LIST_DEPTH];
+static Layer *s_overlays[LIST_DEPTH];   // toasts, above the menu
 static int32_t s_list_ids[LIST_DEPTH];
 static int s_depth;
 
 static ListRow s_rows[MAX_LIST_ROWS];
 static int16_t s_row_h[MAX_LIST_ROWS];
 static int s_row_count;
-static int s_sel;
 static int32_t s_loaded_list = -1;
 static int32_t s_incoming_list = -1;
 static char s_list_title[MAX_TITLE_LEN];
 static bool s_loading;
 static bool s_offline;   // showing the locally synthesised rows
 static bool s_row_scrolling;
+static bool s_title_scrolling;
 static uint32_t s_marquee_t0;
 
 static uint32_t s_phase;
 static AppTimer *s_tick;
 static uint32_t s_load_t0;
 
-static int16_t s_scroll, s_scroll_from, s_scroll_to;
-static uint32_t s_scroll_t0;
-static bool s_scrolling;
-
-static int16_t s_hl, s_hl_from, s_hl_to;
-static uint32_t s_hl_t0;
-static bool s_hl_moving;
-
-static int16_t s_bounce;
-static uint32_t s_bounce_t0;
-static int8_t s_bounce_dir;
-static bool s_bouncing;
-
 static void ensure_tick(void);
 static void relayout(void);
+static void update_visibility(void);
 
 static uint32_t elapsed_ms(uint32_t start) { return (s_phase - start) * TICK_MS; }
 
-static Layer *front_canvas(void) {
+static int front_index(void) {
   int idx = s_depth - 1;
-  return (idx >= 0 && idx < LIST_DEPTH) ? s_canvas[idx] : NULL;
+  return (idx >= 0 && idx < LIST_DEPTH) ? idx : -1;
+}
+
+static MenuLayer *front_menu(void) {
+  int idx = front_index();
+  return idx >= 0 ? s_menus[idx] : NULL;
 }
 
 static void mark_dirty(void) {
-  Layer *l = front_canvas();
-  if (l) layer_mark_dirty(l);
+  int idx = front_index();
+  if (idx < 0) return;
+  if (s_canvas[idx]) layer_mark_dirty(s_canvas[idx]);
+  if (s_menus[idx]) layer_mark_dirty(menu_layer_get_layer(s_menus[idx]));
+  if (s_overlays[idx]) layer_mark_dirty(s_overlays[idx]);
 }
 
-static int16_t row_top(int index) {
-  int16_t y = 0;
-  for (int i = 0; i < index && i < s_row_count; i++) y += s_row_h[i];
-  return y;
+static int selected_row(void) {
+  MenuLayer *menu = front_menu();
+  if (!menu) return 0;
+  return (int)menu_layer_get_selected_index(menu).row;
 }
-
-static int16_t content_height(void) { return row_top(s_row_count); }
 
 // --- data ingest ------------------------------------------------------------
 
@@ -90,6 +89,7 @@ static void send_list_request(int32_t list_id) {
   s_loading = true;
   s_load_t0 = s_phase;
   comm_send(WREQ_OPEN_LIST, NULL, list_id, 0);
+  update_visibility();
   ensure_tick();
   mark_dirty();
 }
@@ -115,25 +115,26 @@ void list_window_add(int32_t row, const ListRow *item) {
   if (row + 1 > s_row_count) s_row_count = row + 1;
 }
 
+static void select_row(int row) {
+  MenuLayer *menu = front_menu();
+  if (!menu || s_row_count <= 0) return;
+  if (row < 0) row = 0;
+  if (row >= s_row_count) row = s_row_count - 1;
+  // MenuRowAlignCenter is what brings a preselected row into view on its own.
+  menu_layer_set_selected_index(menu, MenuIndex(0, (uint16_t)row),
+                                MenuRowAlignCenter, false);
+}
+
 void list_window_end(int32_t list_id, int32_t selected) {
   s_loaded_list = list_id;
   s_loading = false;
   s_offline = false;
   relayout();
-  if (selected < 0) selected = 0;
-  if (selected >= s_row_count) selected = s_row_count > 0 ? s_row_count - 1 : 0;
-  s_sel = selected;
   s_marquee_t0 = s_phase;
-  s_hl = s_hl_to = row_top(s_sel);
-  s_hl_moving = false;
-  s_scroll = s_scroll_to = 0;
-  // Keep the preselected row on screen when the history is long.
-  Layer *l = front_canvas();
-  if (l) {
-    int16_t view = layer_get_bounds(l).size.h - theme_header_height();
-    int16_t bottom = row_top(s_sel) + s_row_h[s_sel];
-    if (bottom > view) s_scroll = s_scroll_to = bottom - view;
-  }
+  MenuLayer *menu = front_menu();
+  if (menu) menu_layer_reload_data(menu);
+  update_visibility();
+  select_row((int)selected);
   ensure_tick();
   mark_dirty();
 }
@@ -156,8 +157,10 @@ static void install_offline_rows(void) {
   s_loaded_list = LIST_CHATS;
   s_offline = true;
   relayout();
-  s_sel = 1;
-  s_hl = s_hl_to = row_top(1);
+  MenuLayer *menu = front_menu();
+  if (menu) menu_layer_reload_data(menu);
+  update_visibility();
+  select_row(1);
 }
 
 // The phone's JS has started.
@@ -181,18 +184,19 @@ static void relayout(void) {
 
 // --- drawing ----------------------------------------------------------------
 
-static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected) {
+// One MenuLayer cell.  The cell's own background has already been filled by the
+// menu in the right colour for its state, so everything here draws on top of it.
+static void menu_draw_row(GContext *ctx, const Layer *cell_layer,
+                          MenuIndex *cell_index, void *data) {
   const Theme *t = theme();
+  int index = (int)cell_index->row;
+  if (index < 0 || index >= s_row_count) return;
   const ListRow *row = &s_rows[index];
-  int16_t h = s_row_h[index];
+  GRect b = layer_get_bounds(cell_layer);
+  bool selected = menu_cell_layer_is_highlighted(cell_layer);
   int16_t right_pad = 6;
 
   GColor row_bg = selected ? t->accent : t->background;
-  if (selected) {
-    graphics_context_set_fill_color(ctx, t->accent);
-    graphics_fill_rect(ctx, GRect(2, y + 1, b.size.w - 4, h - 2), 4, GCornersAll);
-  }
-
   GColor label_color = selected ? GColorBlack
                                 : ((row->flags & ROW_FLAG_ACCENT) ? t->accent : t->text);
   GColor sub_color = selected ? GColorBlack : t->text_dim;
@@ -216,10 +220,9 @@ static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected
 
   // The selected row slides a long label sideways rather than cutting it off;
   // unselected rows stay still and simply truncate.
-  GRect label_box = GRect(8, y + 1, b.size.w - 14 - badge_w - right_pad, ROW_BASE_H);
+  GRect label_box = GRect(6, 1, b.size.w - 12 - badge_w - right_pad, ROW_BASE_H);
   if (selected) {
-    if (theme_draw_marquee(ctx, label_box,
-                           GRect(3, y + 1, b.size.w - 6, ROW_BASE_H),
+    if (theme_draw_marquee(ctx, label_box, GRect(1, 1, b.size.w - 2, ROW_BASE_H),
                            row->label, theme_font_title(), label_color, row_bg,
                            (s_phase - s_marquee_t0) * TICK_MS)) {
       s_row_scrolling = true;
@@ -233,17 +236,17 @@ static void draw_row(GContext *ctx, GRect b, int index, int16_t y, bool selected
   if (badge) {
     graphics_context_set_text_color(ctx, label_color);
     graphics_draw_text(ctx, badge, theme_font_small(),
-                       GRect(b.size.w - badge_w - right_pad, y + 3, badge_w, 20),
+                       GRect(b.size.w - badge_w - right_pad, 3, badge_w, 20),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
   } else if (row->flags & ROW_FLAG_CURRENT) {
     graphics_context_set_fill_color(ctx, selected ? GColorBlack : t->accent);
-    graphics_fill_circle(ctx, GPoint(b.size.w - 10, y + ROW_BASE_H / 2), 3);
+    graphics_fill_circle(ctx, GPoint(b.size.w - 10, ROW_BASE_H / 2), 3);
   }
 
   if (row->sub[0]) {
     graphics_context_set_text_color(ctx, sub_color);
     graphics_draw_text(ctx, row->sub, theme_font_small(),
-                       GRect(8, y + ROW_BASE_H - 4, b.size.w - 16, ROW_SUB_H + 4),
+                       GRect(6, ROW_BASE_H - 4, b.size.w - 12, ROW_SUB_H + 4),
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   }
 }
@@ -268,32 +271,27 @@ static void canvas_update(Layer *layer, GContext *ctx) {
   graphics_context_set_fill_color(ctx, t->background);
   graphics_fill_rect(ctx, b, 0, GCornerNone);
 
-  if (s_loading || s_row_count == 0) {
-    draw_loading(ctx, b);
-    theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL, true, 0);
-    return;
+  if (s_loading || s_row_count == 0) draw_loading(ctx, b);
+  if (theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL,
+                        /*show_clock*/ true, (s_phase - s_marquee_t0) * TICK_MS)) {
+    s_title_scrolling = true;
   }
+}
 
-  int16_t top = theme_header_height();
-  int16_t origin = top - s_scroll + s_bounce;
+static void overlay_update(Layer *layer, GContext *ctx) {
+  toast_draw(ctx, layer_get_bounds(layer));
+}
 
-  // The highlight is drawn from its own animated position so it glides between
-  // rows instead of teleporting.
-  int16_t hl_y = origin + s_hl;
-  int16_t hl_h = s_row_h[s_sel];
-  graphics_context_set_fill_color(ctx, t->accent);
-  graphics_fill_rect(ctx, GRect(2, hl_y + 1, b.size.w - 4, hl_h - 2), 4, GCornersAll);
+// --- menu callbacks ---------------------------------------------------------
 
-  s_row_scrolling = false;
-  for (int i = 0; i < s_row_count; i++) {
-    int16_t y = origin + row_top(i);
-    if (y > b.size.h || y + s_row_h[i] < top) continue;
-    draw_row(ctx, b, i, y, i == s_sel);
-  }
+static uint16_t menu_num_rows(MenuLayer *menu, uint16_t section, void *data) {
+  return (uint16_t)s_row_count;
+}
 
-  theme_draw_header(ctx, b, s_list_title[0] ? s_list_title : "Assistant", NULL,
-                    /*show_clock*/ true, (s_phase - s_marquee_t0) * TICK_MS);
-  toast_draw(ctx, b);
+static int16_t menu_cell_height(MenuLayer *menu, MenuIndex *cell_index, void *data) {
+  int index = (int)cell_index->row;
+  if (index < 0 || index >= s_row_count) return ROW_BASE_H;
+  return s_row_h[index];
 }
 
 // --- animation --------------------------------------------------------------
@@ -303,28 +301,14 @@ static void tick_cb(void *data) {
   s_phase++;
   bool busy = false;
 
-  if (s_scrolling) {
-    uint32_t e = elapsed_ms(s_scroll_t0);
-    s_scroll = s_scroll_from + (int16_t)ease_out_cubic((int32_t)e, SCROLL_MS,
-                                                       s_scroll_to - s_scroll_from);
-    if (e >= SCROLL_MS) { s_scroll = s_scroll_to; s_scrolling = false; }
-    busy = busy || s_scrolling;
-  }
-  if (s_hl_moving) {
-    uint32_t e = elapsed_ms(s_hl_t0);
-    s_hl = s_hl_from + (int16_t)ease_out_cubic((int32_t)e, HL_MS, s_hl_to - s_hl_from);
-    if (e >= HL_MS) { s_hl = s_hl_to; s_hl_moving = false; }
-    busy = busy || s_hl_moving;
-  }
-  if (s_bouncing) {
-    uint32_t e = elapsed_ms(s_bounce_t0);
-    int16_t peak = (int16_t)(-s_bounce_dir * 8);
-    if (e < 110) s_bounce = (int16_t)ease_out_cubic((int32_t)e, 110, peak);
-    else if (e < 220) s_bounce = peak - (int16_t)ease_out_cubic((int32_t)(e - 110), 110, peak);
-    else { s_bounce = 0; s_bouncing = false; }
-    busy = busy || s_bouncing;
-  }
-  if (toast_active() || s_row_scrolling) busy = true;
+  // The menu draws its own rows, so this is the only place that can tell
+  // whether a label is still sliding: read what the last frame reported, then
+  // clear it for the frame this tick is about to ask for.
+  if (s_row_scrolling || s_title_scrolling) busy = true;
+  s_row_scrolling = false;
+  s_title_scrolling = false;
+
+  if (toast_active()) busy = true;
   if (s_loading) {
     if (elapsed_ms(s_load_t0) > LOAD_TIMEOUT_MS) {
       s_loading = false;
@@ -343,55 +327,22 @@ static void ensure_tick(void) {
   if (!s_tick && s_depth > 0) s_tick = app_timer_register(TICK_MS, tick_cb, NULL);
 }
 
-static void scroll_selection_into_view(void) {
-  Layer *l = front_canvas();
-  if (!l) return;
-  int16_t view = layer_get_bounds(l).size.h - theme_header_height();
-  int16_t top = row_top(s_sel);
-  int16_t bottom = top + s_row_h[s_sel];
-  int16_t target = s_scroll_to;
-  if (top < target) target = top;
-  if (bottom > target + view) target = bottom - view;
-  int16_t max = content_height() - view;
-  if (max < 0) max = 0;
-  if (target > max) target = max;
-  if (target < 0) target = 0;
-  if (target != s_scroll_to) {
-    s_scroll_from = s_scroll;
-    s_scroll_to = target;
-    s_scroll_t0 = s_phase;
-    s_scrolling = true;
-  }
-}
-
-static void move_selection(int delta) {
-  int next = s_sel + delta;
-  if (next < 0 || next >= s_row_count) return;
-  s_sel = next;
-  s_marquee_t0 = s_phase;   // a new row starts its scroll from the beginning
-  s_hl_from = s_hl;
-  s_hl_to = row_top(s_sel);
-  s_hl_t0 = s_phase;
-  s_hl_moving = true;
-  scroll_selection_into_view();
-  ensure_tick();
+// While the rows are still on their way there is nothing to select, so the menu
+// steps aside and lets the spinner have the screen.
+static void update_visibility(void) {
+  int idx = front_index();
+  if (idx < 0 || !s_menus[idx]) return;
+  bool empty = s_loading || s_row_count == 0;
+  layer_set_hidden(menu_layer_get_layer(s_menus[idx]), empty);
 }
 
 // --- navigation -------------------------------------------------------------
 
-static void edge_bounce(int8_t dir) {
-  s_bounce_dir = dir;
-  s_bounce_t0 = s_phase;
-  s_bouncing = true;
-  vibe_bump();
-  ensure_tick();
-}
-
-// No list is left by scrolling off its end.  The way back to a conversation is
-// to select it, and BACK leaves a submenu; an over-scroll that silently changed
-// screens turned out to be far too easy to trigger while hunting for a row.
+// No list is left by scrolling off its end -- a MenuLayer simply stops there,
+// which is both the platform's behaviour and the one asked for.  BACK leaves a
+// submenu; the root list is the app, so there is nothing under it to go to.
 static void pop_current(void) {
-  if (s_depth <= 1) { edge_bounce(0); return; }
+  if (s_depth <= 1) { vibe_bump(); return; }
   window_stack_pop(true);
 }
 
@@ -422,8 +373,9 @@ void list_pop_submenus(void) {
 }
 
 static void activate(void) {
-  if (s_sel < 0 || s_sel >= s_row_count) return;
-  const ListRow *row = &s_rows[s_sel];
+  int sel = selected_row();
+  if (sel < 0 || sel >= s_row_count) return;
+  const ListRow *row = &s_rows[sel];
 
   switch (row->action) {
     case ACT_NONE:
@@ -460,6 +412,13 @@ static void activate(void) {
       break;
     }
 
+    case ACT_GOTO_TURN:
+      // UP and DOWN belong to the scroller now, so this is how a conversation
+      // with more than one turn is walked.
+      pop_current();
+      reply_window_goto_turn((int8_t)row->arg);
+      break;
+
     case ACT_DELETE_CHAT:
       // The phone deletes it and answers with PEVT_DISMISS, which tears down
       // both this list and the conversation behind it.
@@ -486,34 +445,22 @@ static void activate(void) {
   }
 }
 
-static void up_click(ClickRecognizerRef recognizer, void *context) {
-  if (s_loading) return;
-  if (s_sel <= 0) edge_bounce(-1);
-  else move_selection(-1);
-}
-
-static void down_click(ClickRecognizerRef recognizer, void *context) {
-  if (s_loading) return;
-  if (s_sel >= s_row_count - 1) edge_bounce(1);
-  else move_selection(1);
-}
-
-static void select_click(ClickRecognizerRef recognizer, void *context) {
+static void menu_select(MenuLayer *menu, MenuIndex *cell_index, void *data) {
   if (s_loading) return;
   activate();
 }
 
-static void select_long(ClickRecognizerRef recognizer, void *context) {
+static void menu_select_long(MenuLayer *menu, MenuIndex *cell_index, void *data) {
   comm_send(WREQ_NEW_CHAT, NULL, 0, 0);
   list_pop_submenus();
   dictation_start();
 }
 
-static void click_config(void *context) {
-  window_single_repeating_click_subscribe(BUTTON_ID_UP, 130, up_click);
-  window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 130, down_click);
-  window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 500, select_long, NULL);
+// A new row starts its marquee from the beginning rather than mid-slide.
+static void menu_selection_changed(struct MenuLayer *menu, MenuIndex new_index,
+                                   MenuIndex old_index, void *data) {
+  s_marquee_t0 = s_phase;
+  ensure_tick();
 }
 
 // --- lifecycle --------------------------------------------------------------
@@ -521,13 +468,39 @@ static void click_config(void *context) {
 static void window_load(Window *window) {
   int idx = (int)(uintptr_t)window_get_user_data(window);
   Layer *root = window_get_root_layer(window);
-  s_canvas[idx] = layer_create(layer_get_bounds(root));
+  GRect b = layer_get_bounds(root);
+  const Theme *t = theme();
+
+  s_canvas[idx] = layer_create(b);
   layer_set_update_proc(s_canvas[idx], canvas_update);
   layer_add_child(root, s_canvas[idx]);
+
+  int16_t top = theme_header_height();
+  s_menus[idx] = menu_layer_create(GRect(0, top, b.size.w, b.size.h - top));
+  menu_layer_set_callbacks(s_menus[idx], NULL, (MenuLayerCallbacks) {
+    .get_num_rows = menu_num_rows,
+    .get_cell_height = menu_cell_height,
+    .draw_row = menu_draw_row,
+    .select_click = menu_select,
+    .select_long_click = menu_select_long,
+    .selection_changed = menu_selection_changed,
+  });
+  menu_layer_set_normal_colors(s_menus[idx], t->background, t->text);
+  menu_layer_set_highlight_colors(s_menus[idx], t->accent, GColorBlack);
+  menu_layer_set_click_config_onto_window(s_menus[idx], window);
+  layer_add_child(root, menu_layer_get_layer(s_menus[idx]));
+
+  // Toasts sit above the menu, which otherwise covers everything below the
+  // header and would swallow them.
+  s_overlays[idx] = layer_create(b);
+  layer_set_update_proc(s_overlays[idx], overlay_update);
+  layer_add_child(root, s_overlays[idx]);
 }
 
 static void window_unload(Window *window) {
   int idx = (int)(uintptr_t)window_get_user_data(window);
+  if (s_overlays[idx]) { layer_destroy(s_overlays[idx]); s_overlays[idx] = NULL; }
+  if (s_menus[idx]) { menu_layer_destroy(s_menus[idx]); s_menus[idx] = NULL; }
   if (s_canvas[idx]) { layer_destroy(s_canvas[idx]); s_canvas[idx] = NULL; }
   if (s_depth > idx) s_depth = idx;
 }
@@ -538,6 +511,7 @@ static void window_appear(Window *window) {
   // Coming back from a submenu or the reply view: refresh, since the model,
   // toggles and chat history may all have moved on.
   if (s_loaded_list != s_list_ids[idx] || idx == 0) list_request(s_list_ids[idx]);
+  update_visibility();
   ensure_tick();
 }
 
@@ -550,7 +524,6 @@ void list_window_init(void) {
     s_windows[i] = window_create();
     window_set_user_data(s_windows[i], (void *)(uintptr_t)i);
     window_set_background_color(s_windows[i], theme()->background);
-    window_set_click_config_provider(s_windows[i], click_config);
     window_set_window_handlers(s_windows[i], (WindowHandlers) {
       .load = window_load,
       .unload = window_unload,
@@ -564,7 +537,8 @@ void list_window_init(void) {
 // used by the minute tick that redraws the header clock.
 void list_window_refresh(void) {
   relayout();
-  if (s_row_count > 0 && s_sel < s_row_count) s_hl = s_hl_to = row_top(s_sel);
+  MenuLayer *menu = front_menu();
+  if (menu) menu_layer_reload_data(menu);
   mark_dirty();
 }
 

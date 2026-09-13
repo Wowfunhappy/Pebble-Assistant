@@ -14,7 +14,7 @@ that will bite you.
 ## Canonical files
 
 - `src/c/assistant.h` — the whole watch/phone protocol lives here.
-- `src/c/ui_reply.c` — conversation view, scrolling, turn transitions.
+- `src/c/ui_reply.c` — conversation view: a ScrollLayer under a drawn header.
 - `src/c/ui_list.c` — every list (chats, settings, models, thinking, chat options).
 - `src/c/toast.c` — the confirmation overlay. Shared because most toasts are
   raised by an action that leaves you on a different screen than it started on.
@@ -83,19 +83,27 @@ of it. Submenus stack above whichever is in front.
   nothing. An absent `WINT` must mean append -- defaulting to 0 would wipe the
   thread.
 - Cancelling dictation hides the reply view, revealing the chats list.
-- No list exits by scrolling off its end -- every list simply stops, with a
-  rubber-band bounce. The way back into a conversation is to select it, and BACK
-  leaves a submenu. An over-scroll that silently changed screens was far too
-  easy to trigger while hunting for a row.
-- **Scrolling matches the platform, measured rather than guessed.** A stock
-  ScrollLayer on Emery moves 32px per press and repeats about every 140ms while
-  held; `SCROLL_STEP_PX` / `SCROLL_REPEAT_MS` mirror that. If you doubt it,
-  build a throwaway app with a real ScrollLayer over a ruler and read the
-  offset -- do not invent a step.
-- `window_single_repeating_click_subscribe` and `window_multi_click_subscribe`
-  do coexist on one button, so hold-to-scroll and double-tap-for-turn both work.
-  A repeat must not change turns (`click_recognizer_is_repeating`): holding is a
-  request to scroll, and flinging into the next turn mid-hold loses your place.
+- **Scrolling is the platform's, not ours.** Lists are a `MenuLayer`, the
+  conversation is a `ScrollLayer`, and both hand UP and DOWN to the widget with
+  `*_set_click_config_onto_window`. An earlier version scrolled by hand -- a
+  measured step, a measured repeat, an eased animation, a rubber-band bounce at
+  the ends, over-scroll and double-tap to change turns -- and it still read as
+  subtly wrong next to every other app on the watch. Matching the platform is
+  not a target you converge on by tuning constants; either the platform is doing
+  it or it is not. Do not reintroduce a hand-rolled scroll, and do not add a
+  gesture the widget does not already have.
+- No list exits by scrolling off its end: a MenuLayer simply stops there, which
+  is both the stock behaviour and the one asked for. The way back into a
+  conversation is to select it, and BACK leaves a submenu.
+- Moving between turns lives in the options list behind a long press of SELECT,
+  offered only when the conversation has more than one turn. The watch owns the
+  decision (it knows which turn is on screen); the row only carries a direction.
+- A ScrollLayer hands its window's remaining buttons to the app through
+  `ScrollLayerCallbacks.click_config_provider`; a MenuLayer has no such hook, so
+  anything it does not bind keeps its default. Neither may re-bind UP or DOWN.
+- A widget draws its own content, so a flag set inside a draw callback -- like
+  the marquee's "still sliding" -- has no frame boundary to clear it. Read it
+  and clear it in the tick, or the redraw timer never stops.
 - **Marquee draw order.** Pebble has no per-draw clipping, so
   `theme_draw_marquee` paints the text wide and masks the overflow back in the
   background colour. Anything sharing the strip -- a badge, the clock, a chevron,
@@ -214,8 +222,8 @@ scratch directory; the JS one, driven against a mocked Codex SSE stream and a
 mocked CalDAV server, found two real bugs.
 
 Before release, check in this order: dictation opens on launch; BACK lands on
-the chats list with New Chat selected; a reply scrolls and the edges move
-between turns; submenus repaint after every keypress; Settings round-trips and
+the chats list with New Chat selected; a reply scrolls and stops at both ends;
+the options list moves between turns; submenus repaint after every keypress; Settings round-trips and
 Diagnostics reports each service by name; a timer both vibrates and appears in
 the timeline.
 

@@ -43,10 +43,9 @@ conversation history can all change without a new watch build.
 | Screen | Button | Action |
 |---|---|---|
 | Dictation | BACK | Cancel and show the chats list |
-| Reply | UP / DOWN | Scroll, 32px a press. Hold to keep scrolling. A press at the top or bottom edge moves to the adjacent turn |
-| Reply | UP ×2 / DOWN ×2 | Previous / next turn |
+| Reply | UP / DOWN | Scroll, exactly as anywhere else on the watch. Hold to keep going |
 | Reply | SELECT | Keep talking in this conversation |
-| Reply | SELECT (hold) | Options for this conversation |
+| Reply | SELECT (hold) | Options for this conversation &mdash; including moving between turns |
 | Reply | BACK | Chats list |
 | Chats list | UP / DOWN | Move through the list |
 | Chats list | SELECT | Open the row &mdash; pick a conversation to go back into it |

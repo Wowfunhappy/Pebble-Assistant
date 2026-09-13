@@ -92,12 +92,27 @@ of it. Submenus stack above whichever is in front.
   not a target you converge on by tuning constants; either the platform is doing
   it or it is not. Do not reintroduce a hand-rolled scroll, and do not add a
   gesture the widget does not already have.
+- Lists use `menu_layer_set_center_focused`, the style the system launcher and
+  Settings use: the selected row holds the middle of the screen. Short lists
+  therefore open with empty space above the first row -- that is the mode
+  working, not a layout bug.
 - No list exits by scrolling off its end: a MenuLayer simply stops there, which
   is both the stock behaviour and the one asked for. The way back into a
   conversation is to select it, and BACK leaves a submenu.
-- Moving between turns lives in the options list behind a long press of SELECT,
-  offered only when the conversation has more than one turn. The watch owns the
-  decision (it knows which turn is on screen); the row only carries a direction.
+- The options behind a long press of SELECT are a native `ActionMenu` built on
+  the watch, not a list fetched from the phone: it opens on the press rather
+  than after a round trip, and the watch is the side that knows which turn is on
+  screen, so it offers a direction only when there is a turn that way. The cost
+  is that a new option needs a new `.pbw`. `LIST_CHAT_ACTIONS` and
+  `sendChatActionsList` are retired; the list id stays reserved.
+- The conversation's question and answer are `TextLayer`s inside the ScrollLayer.
+  TextLayer does not size itself, so `recompute_layout` still measures both and
+  sets frames -- it feeds frames now instead of draw calls. The layers hold
+  pointers into `s_turn` rather than copies, so the text is re-pointed whenever
+  the turn changes, which is exactly when that function runs.
+- The scroll arrows are the stock `ContentIndicator`, painting into two thin
+  layers over the top and bottom of the scrolling area. Availability is
+  recomputed on every content-offset change and whenever the state changes.
 - A ScrollLayer hands its window's remaining buttons to the app through
   `ScrollLayerCallbacks.click_config_provider`; a MenuLayer has no such hook, so
   anything it does not bind keeps its default. Neither may re-bind UP or DOWN.

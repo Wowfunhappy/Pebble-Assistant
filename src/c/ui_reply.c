@@ -18,7 +18,11 @@
 static Window *s_window;
 static Layer *s_canvas;        // background, header, and the non-scrolling states
 static ScrollLayer *s_scroller;
-static Layer *s_body;          // the turn itself, inside the scroller
+static TextLayer *s_question;  // the turn, inside the scroller
+static TextLayer *s_answer;
+static Layer *s_rule;          // the hairline between the two
+static Layer *s_arrow_up;      // where the ContentIndicator paints its arrows
+static Layer *s_arrow_down;
 static Layer *s_overlay;       // toasts, above everything
 static bool s_loaded;
 static bool s_visible;
@@ -45,6 +49,7 @@ static uint32_t s_await_t0;
 static void ensure_tick(void);
 static void recompute_layout(void);
 static void apply_click_config(void);
+static void update_arrows(void);
 
 // --- small helpers ----------------------------------------------------------
 
@@ -99,30 +104,11 @@ static void draw_spinner(GContext *ctx, GPoint center, int16_t radius) {
   }
 }
 
-// The turn itself.  Coordinates are the content's own, so nothing here knows or
-// cares where the scroller currently is.
-static void body_update(Layer *layer, GContext *ctx) {
-  const Theme *t = theme();
+// All that is left to draw by hand between the question and the answer.
+static void rule_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
-  int16_t w = b.size.w - 2 * PAD;
-  int16_t y = PAD;
-
-  if (s_turn.question[0]) {
-    graphics_context_set_text_color(ctx, t->question);
-    graphics_draw_text(ctx, s_turn.question, theme_font_question(),
-                       GRect(PAD, y, w, s_q_h + 4),
-                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-    y += s_q_h + 4;
-    graphics_context_set_stroke_color(ctx, t->accent_dim);
-    graphics_draw_line(ctx, GPoint(PAD, y + 2), GPoint(PAD + w / 3, y + 2));
-    y += 8;
-  }
-  if (s_turn.answer[0]) {
-    graphics_context_set_text_color(ctx, t->text);
-    graphics_draw_text(ctx, s_turn.answer, theme_font_body(),
-                       GRect(PAD, y, w, b.size.h - y),
-                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
-  }
+  graphics_context_set_stroke_color(ctx, theme()->accent_dim);
+  graphics_draw_line(ctx, GPoint(0, b.size.h / 2), GPoint(b.size.w / 3, b.size.h / 2));
 }
 
 // In this state the canvas draws the header and nothing else: the turn belongs
@@ -271,6 +257,7 @@ static void ensure_tick(void) {
 
 static void scroll_to_top(void) {
   if (s_scroller) scroll_layer_set_content_offset(s_scroller, GPointZero, false);
+  update_arrows();
 }
 
 static void goto_turn(int8_t dir) {
@@ -289,35 +276,69 @@ static void goto_turn(int8_t dir) {
   ensure_tick();
 }
 
-void reply_window_goto_turn(int8_t dir) { goto_turn(dir); }
-
+// Lays the two text layers out one under the other and tells the scroller how
+// tall the result is.  TextLayer will not size itself, so the measuring that was
+// here before is still here -- it just feeds frames instead of draw calls.
 static void recompute_layout(void) {
-  if (!s_canvas || !s_scroller || !s_body) return;
+  if (!s_canvas || !s_scroller || !s_question || !s_answer) return;
   GRect view = scroll_frame();
   layer_set_frame(scroll_layer_get_layer(s_scroller), view);
 
+  // TextLayer holds the pointer rather than a copy, and s_turn is where the text
+  // lives for as long as it is on screen, so this only has to be re-pointed when
+  // the turn changes -- which is exactly when this runs.
+  text_layer_set_font(s_question, theme_font_question());
+  text_layer_set_font(s_answer, theme_font_body());
+  text_layer_set_text(s_question, s_turn.question);
+  text_layer_set_text(s_answer, s_turn.answer);
+
   int16_t w = view.size.w - 2 * PAD;
   GRect box = GRect(0, 0, w, 2000);
-  int16_t h = PAD;
-  s_q_h = 0;
-  if (s_turn.question[0]) {
+  int16_t y = PAD;
+
+  bool has_q = s_turn.question[0] != '\0';
+  layer_set_hidden(text_layer_get_layer(s_question), !has_q);
+  layer_set_hidden(s_rule, !has_q);
+  if (has_q) {
     s_q_h = graphics_text_layout_get_content_size(s_turn.question, theme_font_question(), box,
                 GTextOverflowModeWordWrap, GTextAlignmentLeft).h;
-    h += s_q_h + 12;
+    layer_set_frame(text_layer_get_layer(s_question), GRect(PAD, y, w, s_q_h + 4));
+    y += s_q_h + 4;
+    layer_set_frame(s_rule, GRect(PAD, y, w, 8));
+    y += 8;
+  } else {
+    s_q_h = 0;
   }
-  if (s_turn.answer[0]) {
-    h += graphics_text_layout_get_content_size(s_turn.answer, theme_font_body(), box,
-             GTextOverflowModeWordWrap, GTextAlignmentLeft).h;
+
+  bool has_a = s_turn.answer[0] != '\0';
+  layer_set_hidden(text_layer_get_layer(s_answer), !has_a);
+  if (has_a) {
+    int16_t answer_h = graphics_text_layout_get_content_size(s_turn.answer, theme_font_body(), box,
+                           GTextOverflowModeWordWrap, GTextAlignmentLeft).h;
+    layer_set_frame(text_layer_get_layer(s_answer), GRect(PAD, y, w, answer_h + 4));
+    y += answer_h;
   }
-  s_content_h = h + PAD;
+
+  s_content_h = y + PAD;
   // A ScrollLayer shorter than its frame still has to fill it, or the shadow
   // appears over a half-painted screen.
   if (s_content_h < view.size.h) s_content_h = view.size.h;
-
-  layer_set_frame(s_body, GRect(0, 0, view.size.w, s_content_h));
-  layer_set_bounds(s_body, GRect(0, 0, view.size.w, s_content_h));
   scroll_layer_set_content_size(s_scroller, GSize(view.size.w, s_content_h));
-  layer_mark_dirty(s_body);
+  update_arrows();
+}
+
+// The stock arrows, which only appear when there is something to scroll to.
+static void update_arrows(void) {
+  if (!s_scroller) return;
+  ContentIndicator *indicator = scroll_layer_get_content_indicator(s_scroller);
+  if (!indicator) return;
+  GRect view = scroll_frame();
+  int16_t offset = -scroll_layer_get_content_offset(s_scroller).y;
+  bool showing = s_state == REPLY_SHOW;
+  content_indicator_set_content_available(indicator, ContentIndicatorDirectionUp,
+                                          showing && offset > 0);
+  content_indicator_set_content_available(indicator, ContentIndicatorDirectionDown,
+                                          showing && offset + view.size.h < s_content_h);
 }
 
 // The scroller owns UP and DOWN whenever it is on screen; a reminder takes them
@@ -325,6 +346,7 @@ static void recompute_layout(void) {
 static void update_visibility(void) {
   if (!s_scroller) return;
   layer_set_hidden(scroll_layer_get_layer(s_scroller), s_state != REPLY_SHOW);
+  update_arrows();
   apply_click_config();
 }
 
@@ -405,9 +427,69 @@ static void select_click(ClickRecognizerRef recognizer, void *context) {
   dictation_start();
 }
 
+// --- the options menu -------------------------------------------------------
+//
+// The system's own action menu rather than a list fetched from the phone: it
+// opens on the press instead of after a round trip, and the watch is the side
+// that knows which turn is on screen, so it can offer a direction only when
+// there is a turn that way.
+
+static void action_performed(ActionMenu *menu, const ActionMenuItem *action, void *context) {
+  int32_t act = (int32_t)(intptr_t)action_menu_item_get_action_data(action);
+  switch (act) {
+    case ACT_GOTO_TURN_BACK:  goto_turn(-1); break;
+    case ACT_GOTO_TURN_FWD:   goto_turn(1);  break;
+    case ACT_REDO_TURN: {
+      // Nothing is discarded until the replacement question actually arrives,
+      // so backing out of the microphone leaves the conversation untouched.
+      int32_t turn = reply_window_turn_index();
+      if (turn < 0) { toast_show("Nothing to redo"); break; }
+      dictation_start_redo(turn);
+      break;
+    }
+    case ACT_DELETE_CHAT:
+      // The phone deletes it and answers with PEVT_DISMISS, which tears down
+      // the conversation behind this menu.
+      comm_send(WREQ_LIST_ACTION, NULL, ACT_DELETE_CHAT, 0);
+      vibe_soft();
+      break;
+    default:
+      break;
+  }
+}
+
+// The hierarchy is built fresh on every press, so it is freed on every close.
+static void action_menu_closed(ActionMenu *menu, const ActionMenuItem *performed, void *context) {
+  action_menu_hierarchy_destroy(action_menu_get_root_level(menu), NULL, NULL);
+}
+
 static void select_long(ClickRecognizerRef recognizer, void *context) {
   if (s_state == REPLY_ALERT) return;   // the buttons belong to the reminder
-  list_open(LIST_CHAT_ACTIONS);
+  if (s_state != REPLY_SHOW) return;
+
+  ActionMenuLevel *root = action_menu_level_create(4);
+  if (!root) return;
+  if (s_turn.index > 0) {
+    action_menu_level_add_action(root, "Previous turn", action_performed,
+                                 (void *)(intptr_t)ACT_GOTO_TURN_BACK);
+  }
+  if (s_turn.index + 1 < s_turn.count) {
+    action_menu_level_add_action(root, "Next turn", action_performed,
+                                 (void *)(intptr_t)ACT_GOTO_TURN_FWD);
+  }
+  action_menu_level_add_action(root, "Ask again", action_performed,
+                               (void *)(intptr_t)ACT_REDO_TURN);
+  action_menu_level_add_action(root, "Delete chat", action_performed,
+                               (void *)(intptr_t)ACT_DELETE_CHAT);
+
+  const Theme *t = theme();
+  ActionMenuConfig config = {
+    .root_level = root,
+    .colors = { .background = t->accent, .foreground = GColorBlack },
+    .align = ActionMenuAlignTop,
+    .did_close = action_menu_closed,
+  };
+  action_menu_open(&config);
 }
 
 // UP only means something of its own in a reminder, where it snoozes.  Every
@@ -425,6 +507,8 @@ static void back_click(ClickRecognizerRef recognizer, void *context) {
   if (s_state == REPLY_BUSY) comm_send(WREQ_CANCEL, NULL, 0, 0);
   window_stack_pop(true);
 }
+
+static void scroller_moved(ScrollLayer *scroller, void *context) { update_arrows(); }
 
 // Called by the ScrollLayer after it has claimed UP and DOWN, so this must not
 // touch them.
@@ -460,16 +544,50 @@ static void window_load(Window *window) {
   layer_set_update_proc(s_canvas, canvas_update);
   layer_add_child(root, s_canvas);
 
+  const Theme *t = theme();
   GRect view = scroll_frame();
   s_scroller = scroll_layer_create(view);
   scroll_layer_set_shadow_hidden(s_scroller, false);
   scroll_layer_set_callbacks(s_scroller, (ScrollLayerCallbacks) {
     .click_config_provider = scroller_clicks,
+    .content_offset_changed_handler = scroller_moved,
   });
-  s_body = layer_create(GRect(0, 0, view.size.w, view.size.h));
-  layer_set_update_proc(s_body, body_update);
-  scroll_layer_add_child(s_scroller, s_body);
+
+  s_question = text_layer_create(GRect(PAD, 0, view.size.w - 2 * PAD, 20));
+  text_layer_set_background_color(s_question, GColorClear);
+  text_layer_set_text_color(s_question, t->question);
+  text_layer_set_font(s_question, theme_font_question());
+  text_layer_set_overflow_mode(s_question, GTextOverflowModeWordWrap);
+  scroll_layer_add_child(s_scroller, text_layer_get_layer(s_question));
+
+  s_rule = layer_create(GRect(PAD, 0, view.size.w - 2 * PAD, 8));
+  layer_set_update_proc(s_rule, rule_update);
+  scroll_layer_add_child(s_scroller, s_rule);
+
+  s_answer = text_layer_create(GRect(PAD, 0, view.size.w - 2 * PAD, 20));
+  text_layer_set_background_color(s_answer, GColorClear);
+  text_layer_set_text_color(s_answer, t->text);
+  text_layer_set_font(s_answer, theme_font_body());
+  text_layer_set_overflow_mode(s_answer, GTextOverflowModeWordWrap);
+  scroll_layer_add_child(s_scroller, text_layer_get_layer(s_answer));
+
   layer_add_child(root, scroll_layer_get_layer(s_scroller));
+
+  // The stock arrows paint into layers of our choosing, laid over the top and
+  // bottom edges of the scrolling area.
+  ContentIndicator *indicator = scroll_layer_get_content_indicator(s_scroller);
+  s_arrow_up = layer_create(GRect(0, view.origin.y, b.size.w, 14));
+  s_arrow_down = layer_create(GRect(0, b.size.h - 14, b.size.w, 14));
+  layer_add_child(root, s_arrow_up);
+  layer_add_child(root, s_arrow_down);
+  content_indicator_configure_direction(indicator, ContentIndicatorDirectionUp,
+    &(ContentIndicatorConfig) { .layer = s_arrow_up, .times_out = false,
+      .alignment = GAlignCenter,
+      .colors = { .foreground = t->accent, .background = t->background } });
+  content_indicator_configure_direction(indicator, ContentIndicatorDirectionDown,
+    &(ContentIndicatorConfig) { .layer = s_arrow_down, .times_out = false,
+      .alignment = GAlignCenter,
+      .colors = { .foreground = t->accent, .background = t->background } });
 
   // Toasts sit above the scroller, which otherwise covers the lower half of the
   // screen and would swallow them.
@@ -484,8 +602,12 @@ static void window_load(Window *window) {
 static void window_unload(Window *window) {
   s_loaded = false;
   if (s_overlay) { layer_destroy(s_overlay); s_overlay = NULL; }
+  if (s_arrow_up) { layer_destroy(s_arrow_up); s_arrow_up = NULL; }
+  if (s_arrow_down) { layer_destroy(s_arrow_down); s_arrow_down = NULL; }
   if (s_scroller) { scroll_layer_destroy(s_scroller); s_scroller = NULL; }
-  if (s_body) { layer_destroy(s_body); s_body = NULL; }
+  if (s_question) { text_layer_destroy(s_question); s_question = NULL; }
+  if (s_answer) { text_layer_destroy(s_answer); s_answer = NULL; }
+  if (s_rule) { layer_destroy(s_rule); s_rule = NULL; }
   if (s_canvas) { layer_destroy(s_canvas); s_canvas = NULL; }
 }
 

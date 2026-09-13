@@ -19,11 +19,11 @@ var PEVT_READY = 1, PEVT_STATUS = 2, PEVT_TURN_BEGIN = 3, PEVT_Q_CHUNK = 4,
     PEVT_SETTINGS = 13, PEVT_TOAST = 14, PEVT_DISMISS = 15;
 
 var LIST_CHATS = 1, LIST_SETTINGS = 2, LIST_MODELS = 3, LIST_EFFORT = 4,
-    LIST_CHAT_ACTIONS = 5;
+    LIST_CHAT_ACTIONS = 5;   // retired: the watch opens a native ActionMenu instead
 
 var ACT_NONE = 0, ACT_OPEN_CHAT = 1, ACT_SET_MODEL = 2, ACT_SET_EFFORT = 3,
     ACT_TOGGLE = 4, ACT_SUBMENU = 5, ACT_NEW_CHAT = 6, ACT_CLOSE = 8,
-    ACT_DELETE_CHAT = 9, ACT_REDO_TURN = 10, ACT_GOTO_TURN = 11;
+    ACT_DELETE_CHAT = 9, ACT_REDO_TURN = 10;
 
 var ROW_FLAG_CURRENT = 1, ROW_FLAG_ON = 2, ROW_FLAG_OFF = 4,
     ROW_FLAG_CHEVRON = 8, ROW_FLAG_ACCENT = 16;
@@ -265,29 +265,12 @@ function sendEffortList() {
   sendList(LIST_EFFORT, 'Thinking', rows, selected);
 }
 
-// Long-pressing SELECT inside a conversation.  The turn entries are only worth
-// offering when there is more than one turn to move between; the watch decides
-// what a press does with them, since it is the side that knows which turn is on
-// screen.
-function sendChatActionsList() {
-  var rows = [];
-  var chat = activeChat();
-  if (chat && chat.turns && chat.turns.length > 1) {
-    rows.push(makeRow('Previous turn', '', ACT_GOTO_TURN, -1, 0));
-    rows.push(makeRow('Next turn', '', ACT_GOTO_TURN, 1, 0));
-  }
-  rows.push(makeRow('Ask again', '', ACT_REDO_TURN, 0, 0));
-  rows.push(makeRow('Delete chat', '', ACT_DELETE_CHAT, 0, 0));
-  sendList(LIST_CHAT_ACTIONS, 'Options', rows, 0);
-}
-
 function sendListById(listId) {
   switch (listId) {
     case LIST_CHATS:    sendChatsList(); break;
     case LIST_SETTINGS: sendSettingsList(); break;
     case LIST_MODELS:   sendModelsList(); break;
     case LIST_EFFORT:   sendEffortList(); break;
-    case LIST_CHAT_ACTIONS: sendChatActionsList(); break;
     default: break;
   }
 }

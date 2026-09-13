@@ -402,30 +402,6 @@ static void activate(void) {
       reply_window_set_status("Opening...", SPIN_THINKING);
       break;
 
-    case ACT_REDO_TURN: {
-      // Nothing is discarded until the replacement question actually arrives,
-      // so backing out of the microphone leaves the conversation untouched.
-      int32_t turn = reply_window_turn_index();
-      if (turn < 0) { toast_show("Nothing to redo"); break; }
-      list_pop_submenus();
-      dictation_start_redo(turn);
-      break;
-    }
-
-    case ACT_GOTO_TURN:
-      // UP and DOWN belong to the scroller now, so this is how a conversation
-      // with more than one turn is walked.
-      pop_current();
-      reply_window_goto_turn((int8_t)row->arg);
-      break;
-
-    case ACT_DELETE_CHAT:
-      // The phone deletes it and answers with PEVT_DISMISS, which tears down
-      // both this list and the conversation behind it.
-      comm_send(WREQ_LIST_ACTION, NULL, ACT_DELETE_CHAT, row->arg);
-      vibe_soft();
-      break;
-
     case ACT_SET_MODEL:
     case ACT_SET_EFFORT:
       comm_send(WREQ_LIST_ACTION, NULL, row->action, row->arg);
@@ -485,6 +461,9 @@ static void window_load(Window *window) {
     .select_long_click = menu_select_long,
     .selection_changed = menu_selection_changed,
   });
+  // The style the system launcher and Settings use: the selected row holds the
+  // middle of the screen and the list moves under it.
+  menu_layer_set_center_focused(s_menus[idx], true);
   menu_layer_set_normal_colors(s_menus[idx], t->background, t->text);
   menu_layer_set_highlight_colors(s_menus[idx], t->accent, GColorBlack);
   menu_layer_set_click_config_onto_window(s_menus[idx], window);

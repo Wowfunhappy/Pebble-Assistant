@@ -46,7 +46,7 @@
 #define LIST_SETTINGS      2
 #define LIST_MODELS        3
 #define LIST_EFFORT        4
-#define LIST_CHAT_ACTIONS  5   // long-press SELECT inside a conversation
+#define LIST_CHAT_ACTIONS  5   // retired: the options menu is now a native ActionMenu
 
 // Row actions the phone can attach to a list item.
 #define ACT_NONE           0
@@ -59,7 +59,10 @@
 #define ACT_CLOSE          8   // dismiss the list
 #define ACT_DELETE_CHAT    9   // delete the conversation being shown
 #define ACT_REDO_TURN     10   // re-record the question for the turn on screen
-#define ACT_GOTO_TURN     11   // arg = -1 for the previous turn, +1 for the next
+// Only the watch raises these two, from its own options menu: it is the side
+// that knows which turn is on screen.
+#define ACT_GOTO_TURN_BACK 11
+#define ACT_GOTO_TURN_FWD  12
 
 // Row flags.
 #define ROW_FLAG_CURRENT   (1 << 0)   // draw the "active value" dot
@@ -184,7 +187,6 @@ void reply_window_hide(void);     // drop back to the chats list
 void reply_window_refresh(void);  // re-measure after a font change, and redraw
 void reply_window_forget(void);   // discard the shown turn, then hide
 int32_t reply_window_turn_index(void);  // turn on screen, or -1 if none
-void reply_window_goto_turn(int8_t dir);  // -1 back a turn, +1 forward
 
 void list_window_init(void);
 void list_window_deinit(void);

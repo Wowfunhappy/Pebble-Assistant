@@ -42,6 +42,17 @@ that will bite you.
   search, Location, Confirm speech and Listen on open -- nothing else. Anything
   that is set once and forgotten (text size, credentials, places) belongs on the
   phone, where there is a keyboard and a screen to read it on.
+- **CalDAV servers are not all Basic.** Baikal, and SabreDAV generally, default
+  to Digest and reject Basic outright with a 401 -- indistinguishable from a
+  wrong password unless you read the challenge. Every request starts as Basic
+  and is redone with Digest when the server asks; the challenge is cached per
+  host, so a session pays one extra round trip in total. MD5 lives in
+  `00_util.js` (validated against known vectors) because PebbleKit JS ships no
+  crypto. Digest signs the request *path*, not the whole URL. Only MD5 and
+  MD5-sess with `qop=auth` are implemented; anything else is reported rather
+  than failing silently.
+- **All CalDAV traffic must go through `davSend`.** Two write paths once called
+  `httpRequest` directly and so skipped authentication entirely.
 - **Only advertise tools whose service is configured** (`buildToolDefinitions`).
   A model told it has a calendar will claim to have checked one.
 - Static buffers on the watch are sized for the 24 KB platforms. `MAX_ANSWER_LEN`

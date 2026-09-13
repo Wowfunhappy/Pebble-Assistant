@@ -79,27 +79,132 @@ function caldavAccount(kind) {
 }
 
 function caldavHeaders(account, extra) {
-  var headers = {
-    'Authorization': 'Basic ' + base64Encode(account.user + ':' + account.pass),
-    'Content-Type': 'application/xml; charset=utf-8'
-  };
+  var headers = { 'Content-Type': 'application/xml; charset=utf-8' };
   for (var key in (extra || {})) {
     if (Object.prototype.hasOwnProperty.call(extra, key)) headers[key] = extra[key];
   }
   return headers;
 }
 
+// --- authentication ---------------------------------------------------------
+//
+// iCloud and most hosted servers accept Basic.  Baikal -- and SabreDAV installs
+// generally -- default to Digest and reject Basic outright.  Rather than making
+// the user know which their server speaks, every request starts as Basic and, if
+// the server answers 401 with a Digest challenge, is redone properly.  The
+// challenge is cached per host -- not per account, since the realm belongs to the
+// server -- so two accounts on one server share it and only the first request of
+// a session pays for the extra round trip.
+
+var _digestChallenges = {};
+
+function parseDigestChallenge(header) {
+  if (!header) return null;
+  var match = /Digest\s+([\s\S]*)$/i.exec(header);
+  if (!match) return null;
+  var challenge = { realm: '', nonce: '', opaque: '', qop: '', algorithm: '', nc: 0 };
+  var pattern = /([a-zA-Z0-9_-]+)\s*=\s*(?:"([^"]*)"|([^,\s]+))/g;
+  var found;
+  while ((found = pattern.exec(match[1])) !== null) {
+    var value = (typeof found[2] === 'string') ? found[2] : found[3];
+    challenge[found[1].toLowerCase()] = value;
+  }
+  return challenge.nonce ? challenge : null;
+}
+
+// Digest signs the request path, not the whole URL.
+function requestPath(url) {
+  var match = /^https?:\/\/[^/]+(\/[\s\S]*)$/i.exec(url);
+  return match ? match[1] : '/';
+}
+
+function randomHex(length) {
+  var out = '';
+  while (out.length < length) out += Math.floor(Math.random() * 16).toString(16);
+  return out.substring(0, length);
+}
+
+function digestAuthorization(account, challenge, method, url) {
+  var algorithm = String(challenge.algorithm || 'MD5').toUpperCase();
+  if (algorithm !== 'MD5' && algorithm !== 'MD5-SESS') return null;
+
+  var qop = '';
+  if (challenge.qop) {
+    var offered = String(challenge.qop).split(',');
+    for (var i = 0; i < offered.length; i++) {
+      if (offered[i].replace(/^\s+|\s+$/g, '') === 'auth') qop = 'auth';
+    }
+    if (!qop) return null;   // auth-int is not implemented
+  }
+
+  var uri = requestPath(url);
+  var cnonce = randomHex(16);
+  challenge.nc = (challenge.nc || 0) + 1;
+  var nc = ('00000000' + challenge.nc.toString(16));
+  nc = nc.substring(nc.length - 8);
+
+  var ha1 = md5Hex(account.user + ':' + challenge.realm + ':' + account.pass);
+  if (algorithm === 'MD5-SESS') ha1 = md5Hex(ha1 + ':' + challenge.nonce + ':' + cnonce);
+  var ha2 = md5Hex(method + ':' + uri);
+  var response = qop
+    ? md5Hex(ha1 + ':' + challenge.nonce + ':' + nc + ':' + cnonce + ':' + qop + ':' + ha2)
+    : md5Hex(ha1 + ':' + challenge.nonce + ':' + ha2);
+
+  var parts = ['username="' + account.user + '"', 'realm="' + challenge.realm + '"',
+               'nonce="' + challenge.nonce + '"', 'uri="' + uri + '"',
+               'response="' + response + '"'];
+  if (challenge.opaque) parts.push('opaque="' + challenge.opaque + '"');
+  if (challenge.algorithm) parts.push('algorithm=' + challenge.algorithm);
+  if (qop) {
+    parts.push('qop=' + qop);
+    parts.push('nc=' + nc);
+    parts.push('cnonce="' + cnonce + '"');
+  }
+  return 'Digest ' + parts.join(', ');
+}
+
+function readAuthHeader(res) {
+  try {
+    if (res && res.xhr && res.xhr.getResponseHeader) {
+      return res.xhr.getResponseHeader('WWW-Authenticate') || '';
+    }
+  } catch (e) { /* some hosts hide response headers */ }
+  return '';
+}
+
+// Every CalDAV request goes through here so authentication is handled in exactly
+// one place.  Returns the raw response; status interpretation is the caller's.
+function davSend(account, method, url, body, extraHeaders, onDone, isRetry) {
+  var headers = caldavHeaders(account, extraHeaders);
+  var host = urlOrigin(url) || account.kind;
+  var challenge = _digestChallenges[host];
+  var authorization = challenge ? digestAuthorization(account, challenge, method, url) : null;
+  headers.Authorization = authorization ||
+      ('Basic ' + base64Encode(account.user + ':' + account.pass));
+
+  httpRequest({ method: method, url: url, headers: headers, body: body, timeout: 40000 },
+    function (err, res) {
+      if (err) { onDone(err, res); return; }
+      if (res.status === 401 && !isRetry) {
+        var next = parseDigestChallenge(readAuthHeader(res));
+        if (next) {
+          _digestChallenges[host] = next;
+          davSend(account, method, url, body, extraHeaders, onDone, true);
+          return;
+        }
+      }
+      onDone(null, res);
+    });
+}
+
 function caldavRequest(account, method, url, body, extraHeaders, onDone) {
-  httpRequest({
-    method: method,
-    url: url,
-    headers: caldavHeaders(account, extraHeaders),
-    body: body,
-    timeout: 40000
-  }, function (err, res) {
+  davSend(account, method, url, body, extraHeaders, function (err, res) {
     if (err) { onDone(err, null); return; }
     if (res.status === 401 || res.status === 403) {
-      onDone(new Error('CalDAV rejected the username or password'), res);
+      var hint = /digest/i.test(readAuthHeader(res) + ' ' + (res.body || ''))
+        ? 'CalDAV needs Digest auth and the server would not accept ours -- check the password'
+        : 'CalDAV rejected the username or password';
+      onDone(new Error(hint), res);
       return;
     }
     if (res.status === 405 || res.status === 501) {
@@ -431,10 +536,7 @@ function caldavPut(account, collection, uid, ics, etag, onDone) {
   if (etag) headers['If-Match'] = etag;
   else headers['If-None-Match'] = '*';
 
-  httpRequest({
-    method: 'PUT', url: url, body: ics, timeout: 40000,
-    headers: caldavHeaders(account, headers)
-  }, function (err, res) {
+  davSend(account, 'PUT', url, ics, headers, function (err, res) {
     if (err) { onDone(err, null); return; }
     if (res.status < 200 || res.status >= 300) {
       onDone(new Error('Could not save to the server (' + res.status + ')'), null);
@@ -532,12 +634,9 @@ function caldavCompleteTodo(todo, onDone) {
   rebuilt.push('COMPLETED:' + toIcalUtc(new Date()));
 
   var ics = buildIcs('VTODO', rebuilt);
-  httpRequest({
-    method: 'PUT', url: todo.href, body: ics, timeout: 40000,
-    headers: caldavHeaders(account, {
-      'Content-Type': 'text/calendar; charset=utf-8',
-      'If-Match': todo.etag || '*'
-    })
+  davSend(account, 'PUT', todo.href, ics, {
+    'Content-Type': 'text/calendar; charset=utf-8',
+    'If-Match': todo.etag || '*'
   }, function (err, res) {
     if (err) { onDone(err, null); return; }
     if (res.status < 200 || res.status >= 300) {

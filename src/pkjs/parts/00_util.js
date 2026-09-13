@@ -239,6 +239,68 @@ function decodeJwtPayload(token) {
   return safeParse(base64DecodeToString(parts[1]), null);
 }
 
+// --- MD5 --------------------------------------------------------------------
+//
+// Needed for HTTP Digest authentication, which several self-hosted CalDAV
+// servers (Baikal among them) require and which PebbleKit JS gives us no help
+// with.  Operates on the UTF-8 bytes so non-ASCII passwords hash correctly.
+
+function md5Hex(input) {
+  var bytes = stringToUtf8Bytes(String(input));
+
+  function rol(value, shift) { return (value << shift) | (value >>> (32 - shift)); }
+  function add(a, b) { return (a + b) & 0xffffffff; }
+
+  var S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+           5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+           4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+           6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
+  var K = [];
+  for (var ki = 0; ki < 64; ki++) {
+    K[ki] = (Math.floor(Math.abs(Math.sin(ki + 1)) * 4294967296)) & 0xffffffff;
+  }
+
+  var bitLength = bytes.length * 8;
+  var padded = bytes.slice();
+  padded.push(0x80);
+  while ((padded.length % 64) !== 56) padded.push(0);
+  // Length is appended little-endian; only the low 32 bits can matter here.
+  padded.push(bitLength & 0xff, (bitLength >>> 8) & 0xff,
+              (bitLength >>> 16) & 0xff, (bitLength >>> 24) & 0xff, 0, 0, 0, 0);
+
+  var a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+
+  for (var chunk = 0; chunk < padded.length; chunk += 64) {
+    var M = [];
+    for (var w = 0; w < 16; w++) {
+      var o = chunk + w * 4;
+      M[w] = padded[o] | (padded[o + 1] << 8) | (padded[o + 2] << 16) | (padded[o + 3] << 24);
+    }
+    var A = a0, B = b0, C = c0, D = d0;
+    for (var i = 0; i < 64; i++) {
+      var F, g;
+      if (i < 16)      { F = (B & C) | (~B & D);        g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C);        g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D;                 g = (3 * i + 5) % 16; }
+      else             { F = C ^ (B | ~D);              g = (7 * i) % 16; }
+      F = add(add(add(F, A), K[i]), M[g]);
+      A = D; D = C; C = B;
+      B = add(B, rol(F, S[i]));
+    }
+    a0 = add(a0, A); b0 = add(b0, B); c0 = add(c0, C); d0 = add(d0, D);
+  }
+
+  function hex(value) {
+    var out = '';
+    for (var i = 0; i < 4; i++) {
+      var byte = (value >>> (i * 8)) & 0xff;
+      out += '0123456789abcdef'.charAt(byte >> 4) + '0123456789abcdef'.charAt(byte & 15);
+    }
+    return out;
+  }
+  return hex(a0) + hex(b0) + hex(c0) + hex(d0);
+}
+
 // --- time -------------------------------------------------------------------
 
 function pad2(n) { return (n < 10 ? '0' : '') + n; }

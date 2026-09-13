@@ -96,8 +96,13 @@ newly released model shows up on its own.
 **Calendar / Reminders** — two independent CalDAV accounts, because calendars
 and to-dos often do not live on the same server. iCloud is
 `https://caldav.icloud.com` with your Apple ID and an app-specific password
-from [account.apple.com](https://account.apple.com). If discovery is awkward on
-your server, paste the collection URL directly and it is used as-is.
+from [account.apple.com](https://account.apple.com). A Baikal server is its
+`dav.php` URL, e.g. `https://example.com/baikal/html/dav.php`. If discovery is
+awkward on your server, paste the collection URL directly and it is used as-is.
+
+Both Basic and Digest authentication work, chosen automatically — Baikal and
+other SabreDAV installs default to Digest and refuse Basic, while iCloud wants
+Basic, and you should not have to know which is which.
 
 **Places** — name the places you want to be reminded at. "Remind me to water the
 plants when I get home" then writes a reminder carrying Apple's location
